@@ -9,14 +9,17 @@ import type { MeshData } from '../types/ir';
 
 interface Viewer3DProps {
   mesh: MeshData | null;
+  selectedFeatureId?: string | null;
+  onFeatureSelect?: (featureId: string | null) => void;
 }
 
-export function Viewer3D({ mesh }: Viewer3DProps) {
+export function Viewer3D({ mesh, selectedFeatureId, onFeatureSelect }: Viewer3DProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const meshRef = useRef<THREE.Mesh | null>(null);
+  const meshesByFeatureRef = useRef<Map<string, THREE.Mesh>>(new Map());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -92,6 +95,9 @@ export function Viewer3D({ mesh }: Viewer3DProps) {
       camera.position.multiplyScalar(scale);
     };
 
+    // Store onFeatureSelect in a ref so it's accessible in closures
+    const onFeatureSelectRef = { current: onFeatureSelect };
+    
     renderer.domElement.addEventListener('mousedown', onMouseDown);
     renderer.domElement.addEventListener('mousemove', onMouseMove);
     renderer.domElement.addEventListener('mouseup', onMouseUp);
@@ -104,6 +110,9 @@ export function Viewer3D({ mesh }: Viewer3DProps) {
     };
     animate();
 
+    // Update onFeatureSelect ref when prop changes
+    onFeatureSelectRef.current = onFeatureSelect;
+    
     // Cleanup
     return () => {
       renderer.domElement.removeEventListener('mousedown', onMouseDown);
@@ -115,7 +124,7 @@ export function Viewer3D({ mesh }: Viewer3DProps) {
       }
       renderer.dispose();
     };
-  }, []);
+  }, [onFeatureSelect]);
 
   // Update mesh when it changes
   useEffect(() => {
@@ -126,7 +135,18 @@ export function Viewer3D({ mesh }: Viewer3DProps) {
       return;
     }
 
-    // Remove old mesh
+    // Remove old meshes
+    meshesByFeatureRef.current.forEach((oldMesh) => {
+      sceneRef.current?.remove(oldMesh);
+      oldMesh.geometry.dispose();
+      if (Array.isArray(oldMesh.material)) {
+        oldMesh.material.forEach(m => m.dispose());
+      } else {
+        oldMesh.material.dispose();
+      }
+    });
+    meshesByFeatureRef.current.clear();
+
     if (meshRef.current) {
       sceneRef.current.remove(meshRef.current);
       meshRef.current.geometry.dispose();
@@ -135,29 +155,69 @@ export function Viewer3D({ mesh }: Viewer3DProps) {
       } else {
         meshRef.current.material.dispose();
       }
+      meshRef.current = null;
     }
 
-    // Create geometry from mesh data
-    const vertices = new Float32Array(mesh.vertices.flat());
-    const indices = new Uint32Array(mesh.faces.flat());
+    // Check if we have per-feature mesh data
+    const meshWithFeatures = mesh as MeshData & { faceToFeature?: (string | null)[] };
+    if (meshWithFeatures.faceToFeature && meshWithFeatures.faceToFeature.length > 0) {
+      // Simple approach: create one combined mesh but track selection via faceToFeature
+      // For MVP, we'll create a single mesh but use faceToFeature for selection
+      const vertices = new Float32Array(mesh.vertices.flat());
+      const indices = Array.from(new Uint32Array(mesh.faces.flat()));
 
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-    geometry.setIndex(new THREE.BufferIndex(indices));
-    geometry.computeVertexNormals();
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+      
+      // Store faceToFeature mapping in geometry userData
+      geometry.userData.faceToFeature = meshWithFeatures.faceToFeature;
 
-    const material = new THREE.MeshStandardMaterial({
-      color: 0x4a90e2,
-      metalness: 0.3,
-      roughness: 0.7,
-    });
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x4a90e2,
+        metalness: 0.3,
+        roughness: 0.7,
+      });
 
-    const threeMesh = new THREE.Mesh(geometry, material);
-    sceneRef.current.add(threeMesh);
-    meshRef.current = threeMesh;
+      const threeMesh = new THREE.Mesh(geometry, material);
+      // Extract unique features from faceToFeature
+      const featureSet = new Set<string>();
+      meshWithFeatures.faceToFeature.forEach((f: string | null | undefined) => {
+        if (f) featureSet.add(f);
+      });
+      threeMesh.userData.allFeatures = Array.from(featureSet);
+      sceneRef.current.add(threeMesh);
+      meshRef.current = threeMesh;
+    } else {
+      // Single mesh (legacy behavior)
+      const vertices = new Float32Array(mesh.vertices.flat());
+      const indices = Array.from(new Uint32Array(mesh.faces.flat()));
+
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+      geometry.setIndex(indices);
+      geometry.computeVertexNormals();
+
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x4a90e2,
+        metalness: 0.3,
+        roughness: 0.7,
+      });
+
+      const threeMesh = new THREE.Mesh(geometry, material);
+      const meshWithId = mesh as MeshData & { featureId?: string };
+      if (meshWithId.featureId) {
+        threeMesh.userData.featureId = meshWithId.featureId;
+        meshesByFeatureRef.current.set(meshWithId.featureId, threeMesh);
+      }
+      sceneRef.current.add(threeMesh);
+      meshRef.current = threeMesh;
+    }
 
     // Center and scale camera
-    if (cameraRef.current && sceneRef.current) {
+    if (cameraRef.current && sceneRef.current && meshRef.current) {
+      const geometry = meshRef.current.geometry;
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
       if (box) {
@@ -173,6 +233,29 @@ export function Viewer3D({ mesh }: Viewer3DProps) {
       }
     }
   }, [mesh]);
+
+  // Update selection highlighting
+  useEffect(() => {
+    if (!sceneRef.current) return;
+    
+    // Update material colors based on selection
+    meshesByFeatureRef.current.forEach((mesh, featureId) => {
+      if (mesh.material instanceof THREE.MeshStandardMaterial) {
+        mesh.material.color.setHex(selectedFeatureId === featureId ? 0xff6b6b : 0x4a90e2);
+        mesh.material.emissive.setHex(selectedFeatureId === featureId ? 0x330000 : 0x000000);
+      }
+    });
+    
+    // Also handle single mesh case
+    if (meshRef.current && meshRef.current.material instanceof THREE.MeshStandardMaterial) {
+      const isSelected = meshRef.current.userData.featureId === selectedFeatureId ||
+                        (meshRef.current.userData.allFeatures && 
+                         Array.isArray(meshRef.current.userData.allFeatures) &&
+                         meshRef.current.userData.allFeatures.includes(selectedFeatureId));
+      meshRef.current.material.color.setHex(isSelected ? 0xff6b6b : 0x4a90e2);
+      meshRef.current.material.emissive.setHex(isSelected ? 0x330000 : 0x000000);
+    }
+  }, [selectedFeatureId]);
 
   // Handle resize
   useEffect(() => {

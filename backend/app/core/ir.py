@@ -25,7 +25,7 @@ class Param(BaseModel):
 class Feature(BaseModel):
     """Represents a geometric feature in the part."""
     
-    type: Literal["cylinder", "hole", "chamfer"] = Field(
+    type: Literal["cylinder", "hole", "chamfer", "joint_interface", "link_body", "pocket", "fillet"] = Field(
         ..., 
         description="Type of feature"
     )
@@ -38,6 +38,11 @@ class Feature(BaseModel):
     params: dict[str, str | float] = Field(
         default_factory=dict,
         description="Feature parameters (can reference param names or be direct values)"
+    )
+    
+    critical: bool = Field(
+        default=False,
+        description="Whether this feature is critical and should have constraints"
     )
 
 
@@ -59,6 +64,35 @@ class Chain(BaseModel):
     )
 
 
+class Constraint(BaseModel):
+    """Represents a geometric constraint between entities."""
+    
+    name: str = Field(..., description="Constraint name")
+    type: Literal["coincident", "parallel", "perpendicular", "distance", "angle", "reference"] = Field(
+        ...,
+        description="Type of constraint"
+    )
+    entities: list[str] = Field(
+        default_factory=list,
+        description="References to features/edges/faces by name"
+    )
+    params: dict[str, float | str] = Field(
+        default_factory=dict,
+        description="Constraint parameters (distance, angle, etc.)"
+    )
+
+
+class ValidationIssue(BaseModel):
+    """Represents a validation issue found in a part."""
+    
+    code: str = Field(..., description="Issue code (e.g., 'UNCONSTRAINED_FEATURE')")
+    severity: Literal["info", "warning", "error"] = Field(..., description="Severity level")
+    message: str = Field(..., description="Human-readable message")
+    related_params: list[str] = Field(default_factory=list, description="Related parameter names")
+    related_features: list[str] = Field(default_factory=list, description="Related feature names")
+    related_chains: list[str] = Field(default_factory=list, description="Related chain names")
+
+
 class Part(BaseModel):
     """Represents a complete parametric part."""
     
@@ -74,5 +108,9 @@ class Part(BaseModel):
     chains: list[Chain] = Field(
         default_factory=list,
         description="List of dimensional chains for analysis"
+    )
+    constraints: list[Constraint] = Field(
+        default_factory=list,
+        description="List of geometric constraints"
     )
 

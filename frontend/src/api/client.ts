@@ -2,7 +2,7 @@
  * API client for communicating with the backend.
  */
 
-import type { Part, RebuildResponse } from '../types/ir';
+import type { Part, RebuildResponse, ApplyOperationsResponse } from '../types/ir';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
@@ -55,13 +55,90 @@ export const api = {
   },
 
   /**
-   * Send command to agent (stubbed).
+   * Send command to agent.
    */
-  async agentCommand(part: Part, prompt: string): Promise<{ part: Part; message: string; success: boolean }> {
+  async agentCommand(
+    mode: 'create' | 'edit' | 'explain',
+    prompt: string,
+    part: Part | null,
+    scope: { selected_feature_ids?: string[]; selected_param_names?: string[]; selected_chain_names?: string[] } = {}
+  ): Promise<{ part: Part | null; operations: Array<{ type: string; [key: string]: any }>; message: string; success: boolean }> {
     return fetchJSON('/agent/command', {
       method: 'POST',
-      body: JSON.stringify({ part, prompt }),
+      body: JSON.stringify({ 
+        mode,
+        prompt,
+        part: part || null,
+        scope,
+      }),
     });
+  },
+
+  /**
+   * Apply operations to a part.
+   */
+  async applyOperations(part: Part, operations: Array<{ type: string; [key: string]: any }>): Promise<ApplyOperationsResponse> {
+    return fetchJSON<ApplyOperationsResponse>('/models/apply-operations', {
+      method: 'POST',
+      body: JSON.stringify({ part, operations }),
+    });
+  },
+
+  /**
+   * Create a new part from a template.
+   */
+  async createNewPart(template: string): Promise<{ dsl: string; part: Part }> {
+    return fetchJSON('/models/new', {
+      method: 'POST',
+      body: JSON.stringify({ template }),
+    });
+  },
+
+  /**
+   * List available templates.
+   */
+  async listTemplates(): Promise<{ templates: string[] }> {
+    return fetchJSON('/models/templates');
+  },
+
+  /**
+   * Export part to STL.
+   */
+  async exportSTL(part: Part): Promise<Blob> {
+    const response = await fetch(`${API_BASE}/export/stl`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ part }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+
+    return response.blob();
+  },
+
+  /**
+   * Export part to STEP.
+   */
+  async exportSTEP(part: Part): Promise<Blob> {
+    const response = await fetch(`${API_BASE}/export/step`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ part }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+
+    return response.blob();
   },
 };
 

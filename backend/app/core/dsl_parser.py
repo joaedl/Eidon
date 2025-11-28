@@ -6,7 +6,7 @@ Uses Lark parser library for grammar definition and parsing.
 """
 
 from typing import Any
-from lark import Lark, Transformer, Token
+from lark import Lark, Transformer, Token, Tree
 from app.core.ir import Part, Param, Feature, Chain
 
 
@@ -23,7 +23,14 @@ unit: CNAME
 tolerance_spec: "tolerance" CNAME
 
 feature_def: "feature" CNAME "=" feature_type "(" feature_args ")"
-feature_type: "cylinder" | "hole" | "chamfer"
+feature_type: CYLINDER | HOLE | CHAMFER | JOINT_INTERFACE | LINK_BODY | POCKET | FILLET
+CYLINDER: "cylinder"
+HOLE: "hole"
+CHAMFER: "chamfer"
+JOINT_INTERFACE: "joint_interface"
+LINK_BODY: "link_body"
+POCKET: "pocket"
+FILLET: "fillet"
 feature_args: [feature_arg ("," feature_arg)*]
 feature_arg: CNAME "=" (CNAME | STRING | NUMBER | NUMBER unit)
 STRING: /"[^"]*"/
@@ -41,6 +48,19 @@ term_list: [CNAME ("," CNAME)*]
 
 class DSLTransformer(Transformer):
     """Transforms Lark parse tree into IR objects."""
+    
+    def feature_type(self, args):
+        # Now feature_type should have a token child (CYLINDER, HOLE, or CHAMFER)
+        if len(args) > 0:
+            token = args[0]
+            if isinstance(token, Token):
+                token_str = str(token)
+                # Map token type to feature type
+                if token.type in ['CYLINDER', 'HOLE', 'CHAMFER']:
+                    return token_str.lower()
+                return token_str.lower()
+            return str(token).lower()
+        return ""
     
     def start(self, args):
         return args[0]
@@ -100,19 +120,31 @@ class DSLTransformer(Transformer):
     
     def feature_def(self, args):
         name = str(args[0])
-        feature_type = str(args[1])
+        
+        # args structure: [name, feature_type_result, feature_args]
+        if len(args) < 2:
+            raise ValueError(f"Feature '{name}' missing type")
+        
+        feature_type_val = args[1]
+        if isinstance(feature_type_val, Token):
+            feature_type_val = str(feature_type_val).lower()
+        else:
+            feature_type_val = str(feature_type_val).lower()
+        
+        # Validate it's one of the allowed types
+        if feature_type_val not in ["cylinder", "hole", "chamfer"]:
+            raise ValueError(f"Feature '{name}' has invalid type: {feature_type_val}")
+        
         feature_args = args[2] if len(args) > 2 else {}
         
         return {
             "feature": Feature(
-                type=feature_type,
+                type=feature_type_val,
                 name=name,
                 params=feature_args
             )
         }
     
-    def feature_type(self, args):
-        return str(args[0])
     
     def feature_args(self, args):
         """Parse feature arguments into a dict."""

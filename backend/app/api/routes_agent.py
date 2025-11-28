@@ -1,23 +1,29 @@
 """
-API routes for LLM agent integration (stubbed for MVP).
+API routes for LLM agent integration.
 """
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+from typing import Optional, Literal
 from app.core.ir import Part
+from app.core.llm_agent import run_agent, AgentMode, AgentScope, AgentResult
+from app.core.operations import Operation
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
 class AgentCommandRequest(BaseModel):
     """Request body for agent commands."""
-    part: dict  # Part IR as JSON dict
+    mode: Literal["create", "edit", "explain"]
+    scope: dict[str, list[str]] = {}  # { "selected_feature_ids": [...], "selected_param_names": [...], "selected_chain_names": [...] }
+    part: Optional[dict] = None  # Part IR as JSON dict (None for create mode)
     prompt: str
 
 
 class AgentCommandResponse(BaseModel):
     """Response from agent command."""
-    part: dict  # Modified or same Part IR
+    part: Optional[dict] = None  # Modified or new Part IR (None for explain mode)
+    operations: list[dict] = []  # List of operations applied
     message: str
     success: bool
 
@@ -25,25 +31,44 @@ class AgentCommandResponse(BaseModel):
 @router.post("/command")
 async def agent_command(request: AgentCommandRequest) -> AgentCommandResponse:
     """
-    Process an agent command (stubbed for MVP).
+    Process an agent command using LLM.
     
-    In the future, this will:
-    1. Send current IR + prompt to LLM
-    2. Receive modified IR or commands
-    3. Apply changes and return updated IR
-    
-    For MVP, just returns the same IR with a message.
+    Modes:
+    - "create": Create a new part from scratch
+    - "edit": Modify an existing part
+    - "explain": Explain the part without modifying it
     """
     try:
-        # Validate that part is valid
-        part = Part.model_validate(request.part)
+        # Parse part if provided
+        part = None
+        if request.part:
+            part = Part.model_validate(request.part)
         
-        # Stub: return same part with message
-        return AgentCommandResponse(
-            part=part.model_dump(),
-            message="Agent not implemented yet. This is a stub endpoint.",
-            success=False
+        # Build scope
+        scope = AgentScope(
+            selected_feature_ids=request.scope.get("selected_feature_ids", []),
+            selected_param_names=request.scope.get("selected_param_names", []),
+            selected_chain_names=request.scope.get("selected_chain_names", []),
         )
+        
+        # Run agent
+        result: AgentResult = run_agent(
+            mode=AgentMode(request.mode),
+            scope=scope,
+            part=part,
+            user_prompt=request.prompt,
+        )
+        
+        # Convert to response
+        return AgentCommandResponse(
+            part=result.part.model_dump() if result.part else None,
+            operations=[op.model_dump() for op in result.operations],
+            message=result.message,
+            success=result.part is not None or request.mode == "explain"
+        )
+    except ValueError as e:
+        # Handle missing API key or other configuration errors
+        raise HTTPException(status_code=500, detail=f"Agent configuration error: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Agent command failed: {str(e)}")
 

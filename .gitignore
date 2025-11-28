@@ -24,6 +24,7 @@ wheels/
 venv/
 env/
 ENV/
+eidos/
 
 # Node
 node_modules/
@@ -46,4 +47,9 @@ Thumbs.db
 # Build outputs
 frontend/dist/
 frontend/build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
 

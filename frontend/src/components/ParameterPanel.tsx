@@ -4,17 +4,29 @@
  */
 
 import { useState } from 'react';
-import type { Part, Param } from '../types/ir';
+import type { Part } from '../types/ir';
 
 interface ParameterPanelProps {
   part: Part | null;
   onParamChange: (paramName: string, value: number) => void;
+  onToleranceChange: (paramName: string, toleranceClass: string | null) => void;
   onApply: () => void;
   paramsEval?: Record<string, { nominal: number; min: number; max: number }>;
+  highlightedParam?: string | null;
 }
 
-export function ParameterPanel({ part, onParamChange, onApply, paramsEval }: ParameterPanelProps) {
+const TOLERANCE_CLASSES = ['', 'g6', 'H7', 'g7', 'H8'];
+
+export function ParameterPanel({ 
+  part, 
+  onParamChange, 
+  onToleranceChange,
+  onApply, 
+  paramsEval,
+  highlightedParam 
+}: ParameterPanelProps) {
   const [localValues, setLocalValues] = useState<Record<string, number>>({});
+  const [localTolerances, setLocalTolerances] = useState<Record<string, string | null>>({});
 
   if (!part) {
     return (
@@ -32,16 +44,32 @@ export function ParameterPanel({ part, onParamChange, onApply, paramsEval }: Par
     }
   };
 
+  const handleToleranceChange = (paramName: string, toleranceClass: string) => {
+    const value = toleranceClass === '' ? null : toleranceClass;
+    setLocalTolerances(prev => ({ ...prev, [paramName]: value }));
+    onToleranceChange(paramName, value);
+  };
+
   return (
     <div style={{ padding: '1rem', height: '100%', overflow: 'auto' }}>
       <h2 style={{ marginTop: 0 }}>Parameters</h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
         {Object.values(part.params).map((param) => {
           const currentValue = localValues[param.name] ?? param.value;
+          const currentTolerance = localTolerances[param.name] ?? param.tolerance_class ?? '';
           const evalData = paramsEval?.[param.name];
+          const isHighlighted = highlightedParam === param.name;
 
           return (
-            <div key={param.name} style={{ border: '1px solid #ccc', padding: '0.75rem', borderRadius: '4px' }}>
+            <div 
+              key={param.name} 
+              style={{ 
+                border: `2px solid ${isHighlighted ? '#4a90e2' : '#ccc'}`, 
+                padding: '0.75rem', 
+                borderRadius: '4px',
+                backgroundColor: isHighlighted ? '#e3f2fd' : 'white',
+              }}
+            >
               <div style={{ fontWeight: 'bold', marginBottom: '0.5rem' }}>{param.name}</div>
               <div style={{ marginBottom: '0.5rem' }}>
                 <label>
@@ -55,11 +83,20 @@ export function ParameterPanel({ part, onParamChange, onApply, paramsEval }: Par
                   <span style={{ marginLeft: '0.5rem' }}>{param.unit}</span>
                 </label>
               </div>
-              {param.tolerance_class && (
-                <div style={{ fontSize: '0.9em', color: '#666' }}>
-                  Tolerance: {param.tolerance_class}
-                </div>
-              )}
+              <div style={{ marginBottom: '0.5rem' }}>
+                <label>
+                  Tolerance:
+                  <select
+                    value={currentTolerance}
+                    onChange={(e) => handleToleranceChange(param.name, e.target.value)}
+                    style={{ marginLeft: '0.5rem', padding: '0.25rem' }}
+                  >
+                    {TOLERANCE_CLASSES.map(tc => (
+                      <option key={tc} value={tc}>{tc || '(none)'}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               {evalData && (
                 <div style={{ fontSize: '0.85em', color: '#888', marginTop: '0.5rem' }}>
                   <div>Nominal: {evalData.nominal.toFixed(3)}</div>

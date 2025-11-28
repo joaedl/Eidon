@@ -35,8 +35,18 @@ Eidos/
 ```bash
 cd backend
 pip install -e .
-# eller
-pip install -r requirements.txt  # om du skapar en sådan
+```
+
+**Konfiguration:**
+
+Skapa en `.env`-fil i projektets rotkatalog (Eidos/) med din OpenAI API-nyckel:
+
+```bash
+# Kopiera exempelfilen
+cp .env.example .env
+
+# Redigera .env och lägg till din API-nyckel
+# OPENAI_API_KEY=sk-your-actual-api-key-here
 ```
 
 ### Frontend
@@ -106,7 +116,7 @@ part shaft {
 - `POST /models/from-dsl` - Parse DSL till IR
 - `POST /models/rebuild` - Bygg geometri från IR
 - `POST /analysis/chains` - Analysera måttkedjor
-- `POST /agent/command` - LLM-agent kommando (stubbad)
+- `POST /agent/command` - LLM-agent kommando (kräver OpenAI API-nyckel i .env)
 
 ## Teknisk Stack
 
