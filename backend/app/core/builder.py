@@ -118,166 +118,112 @@ def build_cad_model(part: Part) -> cq.Workplane:
     wp = cq.Workplane("XY")
     
     # Process features in order
+    # MVP: Only sketch and extrude features are supported
     for feature in part.features:
-        if feature.type == "cylinder":
-            # Extract parameters
-            dia_param = feature.params.get("dia_param") or feature.params.get("dia")
-            length_param = feature.params.get("length_param") or feature.params.get("length")
+        if feature.type not in ["sketch", "extrude"]:
+            raise ValueError(f"Feature type '{feature.type}' not supported in MVP. Only 'sketch' and 'extrude' are available.")
+        
+        if feature.type == "sketch":
+            # Sketches don't build geometry directly - they're 2D profiles
+            # Geometry is built when they're used in extrude features
+            # For now, just skip (no-op)
+            pass
+        
+        elif feature.type == "extrude":
+            # Extrude a sketch into 3D
+            sketch_ref = feature.params.get("sketch") or feature.params.get("sketch_name")
+            distance_param = feature.params.get("distance") or feature.params.get("distance_param")
+            operation = feature.params.get("operation", "join")  # "join" or "cut"
             
-            if not dia_param or not length_param:
-                raise ValueError(f"Cylinder feature '{feature.name}' missing dia or length parameter")
+            if not sketch_ref:
+                raise ValueError(f"Extrude feature '{feature.name}' missing sketch reference")
+            if not distance_param:
+                raise ValueError(f"Extrude feature '{feature.name}' missing distance parameter")
             
-            dia = resolve_param_value(part, dia_param)
-            length = resolve_param_value(part, length_param)
+            # Find the sketch (could be in part.sketches or embedded in a sketch feature)
+            sketch = None
+            if isinstance(sketch_ref, str):
+                # Look for sketch by name
+                for s in part.sketches:
+                    if s.name == sketch_ref:
+                        sketch = s
+                        break
+                # Also check sketch features
+                if not sketch:
+                    for f in part.features:
+                        if f.type == "sketch" and f.sketch and f.name == sketch_ref:
+                            sketch = f.sketch
+                            break
             
-            # Create cylinder
-            wp = wp.cylinder(length, dia / 2.0)
+            if not sketch:
+                raise ValueError(f"Sketch '{sketch_ref}' not found for extrude feature '{feature.name}'")
             
-        elif feature.type == "hole":
-            # For MVP: simple through-hole at origin
-            dia_param = feature.params.get("dia_param") or feature.params.get("dia")
-            if not dia_param:
-                raise ValueError(f"Hole feature '{feature.name}' missing dia parameter")
+            distance = resolve_param_value(part, distance_param)
             
-            dia = resolve_param_value(part, dia_param)
+            # Build 2D profile from sketch entities
+            # For MVP: convert sketch entities to CadQuery 2D workplane, then extrude
+            sketch_wp = cq.Workplane("XY")  # Default plane, could be mapped from sketch.plane
             
-            # Create hole (subtract from current solid)
-            wp = wp.faces(">Z").workplane().hole(dia)
+            # Process entities to build the profile
+            # For MVP, we'll create a simple closed profile from lines
+            # In a full implementation, we'd use a proper constraint solver
+            for entity in sketch.entities:
+                if entity.type == "line" and entity.start and entity.end:
+                    # Add line to sketch (simplified - in full impl, would build proper wire)
+                    # For MVP, we'll create a rectangle from the bounding box
+                    pass  # Placeholder
             
-        elif feature.type == "chamfer":
-            # For MVP: chamfer on the end face
-            size_param = feature.params.get("size_param") or feature.params.get("size")
-            edge_ref = feature.params.get("edge")
-            target_feature = feature.params.get("target_feature")
+            # For MVP: create a simple box from sketch bounding box
+            # Calculate bounding box from all entities (including rectangles and circles)
+            min_x = min_y = float('inf')
+            max_x = max_y = float('-inf')
+            has_geometry = False
             
-            if not size_param:
-                raise ValueError(f"Chamfer feature '{feature.name}' missing size parameter")
+            for entity in sketch.entities:
+                # Skip construction lines
+                if getattr(entity, 'isConstruction', False):
+                    continue
+                    
+                if entity.type == "line":
+                    if entity.start and entity.end:
+                        has_geometry = True
+                        min_x = min(min_x, entity.start[0], entity.end[0])
+                        max_x = max(max_x, entity.start[0], entity.end[0])
+                        min_y = min(min_y, entity.start[1], entity.end[1])
+                        max_y = max(max_y, entity.start[1], entity.end[1])
+                elif entity.type == "rectangle":
+                    if entity.corner1 and entity.corner2:
+                        has_geometry = True
+                        min_x = min(min_x, entity.corner1[0], entity.corner2[0])
+                        max_x = max(max_x, entity.corner1[0], entity.corner2[0])
+                        min_y = min(min_y, entity.corner1[1], entity.corner2[1])
+                        max_y = max(max_y, entity.corner1[1], entity.corner2[1])
+                elif entity.type == "circle":
+                    if entity.center and entity.radius:
+                        has_geometry = True
+                        min_x = min(min_x, entity.center[0] - entity.radius)
+                        max_x = max(max_x, entity.center[0] + entity.radius)
+                        min_y = min(min_y, entity.center[1] - entity.radius)
+                        max_y = max(max_y, entity.center[1] + entity.radius)
             
-            size = resolve_param_value(part, size_param)
-            
-            # Apply chamfer to the end face
-            # edge_ref can be "end" (string literal) or a parameter name
-            if edge_ref:
-                # If it's a string that looks like a parameter name, try to resolve it
-                # Otherwise treat it as a literal string like "end"
-                if isinstance(edge_ref, str) and edge_ref not in ["end", "start"] and edge_ref in part.params:
-                    edge_val = resolve_param_value(part, edge_ref)
-                else:
-                    edge_val = edge_ref
+            if has_geometry and min_x != float('inf'):
+                width = max_x - min_x
+                height = max_y - min_y
+                # Ensure minimum dimensions (avoid zero-size geometry)
+                if width <= 0:
+                    width = 1.0
+                if height <= 0:
+                    height = 1.0
+                # Create a box from the bounding box (simplified for MVP)
+                # In full implementation, would build proper wire from sketch entities
+                extrude_wp = cq.Workplane("XY").rect(width, height).extrude(distance)
                 
-                if edge_val == "end" or str(edge_val) == "end":
-                    # Chamfer the top edge
-                    wp = wp.edges(">Z").chamfer(size)
-                else:
-                    # Default: chamfer all edges
-                    wp = wp.edges().chamfer(size)
+                if operation == "cut":
+                    wp = wp.cut(extrude_wp)
+                else:  # join
+                    wp = wp.union(extrude_wp)
             else:
-                # Default: chamfer all edges
-                wp = wp.edges().chamfer(size)
-        
-        elif feature.type == "fillet":
-            # Round/fillet edges
-            radius_param = feature.params.get("radius") or feature.params.get("radius_param")
-            target_feature = feature.params.get("target_feature")
-            
-            if not radius_param:
-                raise ValueError(f"Fillet feature '{feature.name}' missing radius parameter")
-            
-            radius = resolve_param_value(part, radius_param)
-            
-            # Apply fillet to all edges (can be refined later)
-            wp = wp.edges().fillet(radius)
-        
-        elif feature.type == "joint_interface":
-            # Create a joint interface (bolt circle pattern)
-            # For MVP: create a simple cylinder with holes
-            dia_param = feature.params.get("dia") or feature.params.get("dia_param")
-            hole_dia_param = feature.params.get("hole_dia") or feature.params.get("hole_dia_param")
-            holes_param = feature.params.get("holes")
-            thickness_param = feature.params.get("thickness") or feature.params.get("thickness_param", 10.0)
-            
-            if not dia_param:
-                raise ValueError(f"Joint interface '{feature.name}' missing dia parameter")
-            
-            dia = resolve_param_value(part, dia_param)
-            thickness = resolve_param_value(part, thickness_param) if thickness_param else 10.0
-            
-            # Create base cylinder for interface
-            wp = wp.cylinder(thickness, dia / 2.0)
-            
-            # Add bolt holes if specified
-            if hole_dia_param and holes_param:
-                hole_dia = resolve_param_value(part, hole_dia_param)
-                num_holes = int(holes_param) if isinstance(holes_param, (int, float)) else int(holes_param)
-                bolt_circle_dia = dia * 0.7  # Bolt circle at 70% of interface diameter
-                
-                # Create bolt circle pattern
-                for i in range(num_holes):
-                    angle = (360.0 / num_holes) * i
-                    import math
-                    x = (bolt_circle_dia / 2.0) * math.cos(math.radians(angle))
-                    y = (bolt_circle_dia / 2.0) * math.sin(math.radians(angle))
-                    wp = wp.workplane(offset=thickness/2).center(x, y).hole(hole_dia)
-        
-        elif feature.type == "link_body":
-            # Create a link body between two interfaces
-            # For MVP: create a rectangular or tubular cross-section swept between interfaces
-            section_type = feature.params.get("section_type", "rect")
-            width_param = feature.params.get("width") or feature.params.get("width_param")
-            height_param = feature.params.get("height") or feature.params.get("height_param")
-            thickness_param = feature.params.get("thickness") or feature.params.get("thickness_param")
-            from_interface = feature.params.get("from")
-            to_interface = feature.params.get("to")
-            
-            if not width_param or not height_param:
-                raise ValueError(f"Link body '{feature.name}' missing width or height parameter")
-            
-            width = resolve_param_value(part, width_param)
-            height = resolve_param_value(part, height_param)
-            thickness = resolve_param_value(part, thickness_param) if thickness_param else 4.0
-            
-            # For MVP: create a simple rectangular box positioned after previous features
-            # In full implementation, would compute path between interfaces and sweep
-            # For now, translate and create box
-            if section_type == "rect":
-                # Position the link body (simple translation for MVP)
-                wp = wp.translate((0, 0, 0)).box(width, height, thickness)
-            elif section_type == "tube":
-                # Create a tube (hollow rectangle)
-                outer_box = cq.Workplane("XY").box(width, height, thickness)
-                inner_box = cq.Workplane("XY").box(width - 2*thickness, height - 2*thickness, thickness + 1)
-                wp = outer_box.cut(inner_box)
-            else:
-                wp = wp.box(width, height, thickness)
-        
-        elif feature.type == "pocket":
-            # Create a pocket (cutout) in a host feature
-            host = feature.params.get("host")
-            depth_param = feature.params.get("depth") or feature.params.get("depth_param")
-            width_param = feature.params.get("width") or feature.params.get("width_param")
-            height_param = feature.params.get("height") or feature.params.get("height_param")
-            fillet_param = feature.params.get("fillet") or feature.params.get("fillet_param")
-            
-            if not depth_param or not width_param or not height_param:
-                raise ValueError(f"Pocket '{feature.name}' missing required parameters")
-            
-            depth = resolve_param_value(part, depth_param)
-            width = resolve_param_value(part, width_param)
-            height = resolve_param_value(part, height_param)
-            fillet = resolve_param_value(part, fillet_param) if fillet_param else 0.0
-            
-            # Create pocket as a cut
-            pocket_wp = cq.Workplane("XY")
-            if fillet > 0:
-                # Rounded rectangle pocket
-                pocket_wp = pocket_wp.rect(width, height).extrude(depth)
-                # Apply fillet to edges (simplified)
-            else:
-                # Rectangular pocket
-                pocket_wp = pocket_wp.rect(width, height).extrude(depth)
-            
-            # Cut the pocket from the current solid
-            wp = wp.cut(pocket_wp)
+                raise ValueError(f"Sketch '{sketch_ref}' has no valid geometry for extrusion")
     
     return wp
 

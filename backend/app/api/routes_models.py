@@ -8,6 +8,7 @@ from app.core.ir import Part, ValidationIssue
 from app.core.dsl_parser import parse_dsl_to_ir
 from app.core.builder import generate_mesh, MultiMeshData
 from app.core.analysis import evaluate_all_params, evaluate_all_chains, validate_part
+from app.core.dsl_store import set_part
 from app.core.operations import apply_operations, Operation, SetParameter, UpdateParameterTolerance
 
 router = APIRouter(prefix="/models", tags=["models"])
@@ -40,6 +41,8 @@ async def parse_dsl(request: DSLRequest) -> dict:
     """
     try:
         part = parse_dsl_to_ir(request.dsl)
+        # Store in DSL store
+        set_part(part, request.dsl)
         return part.model_dump()
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"DSL parsing failed: {str(e)}")
@@ -55,6 +58,8 @@ async def rebuild_model(request: RebuildRequest) -> RebuildResponse:
     try:
         # Parse Part from dict
         part = Part.model_validate(request.part)
+        # Store in DSL store (generate DSL if not provided)
+        set_part(part)
         
         # Generate mesh with per-feature metadata for selection
         mesh_data = generate_mesh(part, per_feature=True)

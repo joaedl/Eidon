@@ -117,7 +117,9 @@ def build_system_prompt(mode: AgentMode, scope: AgentScope, part: Optional[Part]
         "",
         "The CAD system uses a semantic representation with:",
         "- Parameters: named values with units (e.g., 'dia = 20 mm') and optional tolerance classes",
-        "- Features: geometric elements (cylinder, hole, chamfer, joint_interface, link_body, pocket, fillet)",
+        "- Features: geometric elements (MVP: only sketch and extrude):",
+        "  * sketch: 2D sketch profile (contains entities: line, circle, rectangle; constraints: horizontal, vertical, coincident; dimensions: length, diameter)",
+        "  * extrude: extrude a sketch into 3D (requires sketch reference, distance, operation='join' or 'cut')",
         "- Chains: dimensional chains for tolerance analysis",
         "",
     ]
@@ -129,10 +131,37 @@ def build_system_prompt(mode: AgentMode, scope: AgentScope, part: Optional[Part]
             "Use the create_new_part tool to generate a full Part specification.",
             "",
             "Guidelines:",
+            "- ALWAYS create parameters in part.params for values that should be editable",
+            "- Features should reference parameters by name (e.g., params={'size': 'size_param'}) rather than hardcoding values",
             "- Include all necessary parameters with appropriate units (typically 'mm')",
             "- Create features that make sense for the described part",
             "- Use meaningful parameter and feature names",
             "- Consider adding tolerance classes where appropriate (e.g., 'g6', 'H7')",
+            "",
+            "Example for cube:",
+            "- Create param: {'size': {'name': 'size', 'value': 20, 'unit': 'mm'}}",
+            "- Create feature: {'type': 'box', 'name': 'cube', 'params': {'size': 'size'}}",
+            "",
+            "Feature parameter examples (CRITICAL - always include params in feature dict):",
+            "",
+            "IMPORTANT: For editable parameters, create them in part.params and reference them in features!",
+            "",
+            "Example for '20,20,20 cube':",
+            "  part.params = {'size': {'name': 'size', 'value': 20, 'unit': 'mm'}}",
+            "  feature.params = {'size': 'size'}  # Reference the parameter name",
+            "",
+            "Example for '20x30x40 box':",
+            "  part.params = {",
+            "    'width': {'name': 'width', 'value': 20, 'unit': 'mm'},",
+            "    'height': {'name': 'height', 'value': 30, 'unit': 'mm'},",
+            "    'depth': {'name': 'depth', 'value': 40, 'unit': 'mm'}",
+            "  }",
+            "  feature.params = {'width': 'width', 'height': 'height', 'depth': 'depth'}",
+            "",
+            "You can also use direct values in feature.params (e.g., {'size': 20}),",
+            "but creating parameters makes them editable in the UI.",
+            "",
+            "REMEMBER: The 'params' field in a feature is a REQUIRED dict that must contain the feature's parameters!",
         ])
     elif mode == AgentMode.EDIT:
         prompt_parts.extend([
@@ -172,14 +201,21 @@ def build_system_prompt(mode: AgentMode, scope: AgentScope, part: Optional[Part]
             "- Tolerance analysis results",
         ])
     
-    prompt_parts.extend([
-        "",
-        "IMPORTANT RULES:",
-        "- Always use the specified tools - do not generate arbitrary code",
-        "- Ensure all parameter references in features are valid",
-        "- Maintain consistency (e.g., if changing a parameter, update features that use it)",
-        "- Provide clear, helpful messages explaining what you did",
-    ])
+        prompt_parts.extend([
+            "",
+            "IMPORTANT RULES:",
+            "- Always use the specified tools - do not generate arbitrary code",
+            "- Ensure all parameter references in features are valid",
+            "- Maintain consistency (e.g., if changing a parameter, update features that use it)",
+            "- Provide clear, helpful messages explaining what you did",
+            "",
+            "CRITICAL: Feature parameters must be set correctly:",
+            "- For box/cube: feature.params MUST include 'width', 'height', 'depth' OR 'size' (for cube)",
+            "  Example for cube: {'type': 'box', 'name': 'cube', 'params': {'size': 20}}",
+            "  Example for box: {'type': 'box', 'name': 'box', 'params': {'width': 20, 'height': 30, 'depth': 40}}",
+            "- For cylinder: feature.params MUST include 'dia' and 'length' (or 'dia_param'/'length_param' for references)",
+            "- NEVER create a feature with empty params dict - always include required parameters",
+        ])
     
     return "\n".join(prompt_parts)
 
@@ -213,7 +249,7 @@ def get_part_schema_json() -> dict:
                     "properties": {
                         "type": {
                             "type": "string",
-                            "enum": ["cylinder", "hole", "chamfer", "joint_interface", "link_body", "pocket", "fillet"]
+                            "enum": ["sketch", "extrude"]  # MVP: Only sketch and extrude
                         },
                         "name": {"type": "string"},
                         "params": {
@@ -444,10 +480,17 @@ def run_agent(
                     issues = validate_part(new_part)
                     issue_summary = f" ({len(issues)} validation issues)" if issues else ""
                 except Exception as e:
+                    # Provide more helpful error message with feature details
+                    error_msg = str(e)
+                    if "missing" in error_msg.lower() and "parameter" in error_msg.lower():
+                        # Try to identify which feature has the issue
+                        for feature in new_part.features:
+                            if feature.name in error_msg:
+                                error_msg += f" Feature '{feature.name}' has params: {feature.params}"
                     return AgentResult(
                         part=None,
                         operations=[],
-                        message=f"Error: Generated part cannot be built: {str(e)}"
+                        message=f"Error: Generated part cannot be built: {error_msg}"
                     )
                 
                 return AgentResult(

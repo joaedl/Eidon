@@ -4,15 +4,16 @@
  */
 
 import { useState } from 'react';
-import type { Part } from '../types/ir';
+import type { Part, Sketch } from '../types/ir';
 
 interface SemanticTreeProps {
   part: Part | null;
   selectedItem: { type: 'param' | 'feature' | 'chain'; name: string } | null;
   onSelect: (type: 'param' | 'feature' | 'chain', name: string) => void;
+  onSketchEdit?: (featureName: string, sketch: Sketch) => void;
 }
 
-export function SemanticTree({ part, selectedItem, onSelect }: SemanticTreeProps) {
+export function SemanticTree({ part, selectedItem, onSelect, onSketchEdit }: SemanticTreeProps) {
   const [expanded, setExpanded] = useState({
     params: true,
     features: true,
@@ -85,10 +86,35 @@ export function SemanticTree({ part, selectedItem, onSelect }: SemanticTreeProps
             {part.features.map((feature) => (
               <div
                 key={feature.name}
-                onClick={() => onSelect('feature', feature.name)}
-                style={itemStyle('feature', feature.name)}
+                style={{
+                  ...itemStyle('feature', feature.name),
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}
               >
-                {feature.name} <span style={{ color: '#666', fontSize: '0.85em' }}>({feature.type})</span>
+                <span onClick={() => onSelect('feature', feature.name)}>
+                  {feature.name} <span style={{ color: '#666', fontSize: '0.85em' }}>({feature.type})</span>
+                </span>
+                {feature.type === 'sketch' && feature.sketch && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSketchEdit?.(feature.name, feature.sketch!);
+                    }}
+                    style={{
+                      padding: '0.25rem 0.5rem',
+                      fontSize: '0.8em',
+                      backgroundColor: '#4a90e2',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Edit Sketch
+                  </button>
+                )}
               </div>
             ))}
           </div>

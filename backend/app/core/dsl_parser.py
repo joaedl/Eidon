@@ -7,7 +7,7 @@ Uses Lark parser library for grammar definition and parsing.
 
 from typing import Any
 from lark import Lark, Transformer, Token, Tree
-from app.core.ir import Part, Param, Feature, Chain
+from app.core.ir import Part, Param, Feature, Chain, Sketch, SketchEntity, SketchConstraint, SketchDimension
 
 
 # DSL Grammar definition for Lark
@@ -22,15 +22,25 @@ param_def: "param" CNAME "=" NUMBER unit tolerance_spec?
 unit: CNAME
 tolerance_spec: "tolerance" CNAME
 
-feature_def: "feature" CNAME "=" feature_type "(" feature_args ")"
-feature_type: CYLINDER | HOLE | CHAMFER | JOINT_INTERFACE | LINK_BODY | POCKET | FILLET
-CYLINDER: "cylinder"
-HOLE: "hole"
-CHAMFER: "chamfer"
-JOINT_INTERFACE: "joint_interface"
-LINK_BODY: "link_body"
-POCKET: "pocket"
-FILLET: "fillet"
+feature_def: "feature" CNAME "=" feature_type "(" feature_args ")" | sketch_feature_def
+feature_type: SKETCH | EXTRUDE
+# MVP: Only sketch and extrude supported
+SKETCH: "sketch"
+EXTRUDE: "extrude"
+sketch_feature_def: "feature" CNAME "=" "sketch" "(" sketch_args ")" sketch_body
+sketch_args: [sketch_arg ("," sketch_arg)*]
+sketch_arg: CNAME "=" (CNAME | STRING)
+sketch_body: "{" sketch_content "}"
+sketch_content: (sketch_line | sketch_circle | sketch_rectangle | sketch_constraint | sketch_dim_length | sketch_dim_diameter)*
+sketch_line: "line" CNAME "from" point "to" point
+sketch_circle: "circle" CNAME "center" point "radius" NUMBER unit?
+sketch_rectangle: "rectangle" CNAME "from" point "to" point
+point: "(" NUMBER "," NUMBER ")"
+sketch_constraint: CONSTRAINT_TYPE "(" entity_list ")"
+CONSTRAINT_TYPE: "horizontal" | "vertical" | "coincident"
+entity_list: CNAME ("," CNAME)*
+sketch_dim_length: "dim_length" "(" CNAME "," NUMBER unit ")"
+sketch_dim_diameter: "dim_diameter" "(" CNAME "," NUMBER unit ")"
 feature_args: [feature_arg ("," feature_arg)*]
 feature_arg: CNAME "=" (CNAME | STRING | NUMBER | NUMBER unit)
 STRING: /"[^"]*"/
@@ -50,15 +60,15 @@ class DSLTransformer(Transformer):
     """Transforms Lark parse tree into IR objects."""
     
     def feature_type(self, args):
-        # Now feature_type should have a token child (CYLINDER, HOLE, or CHAMFER)
+        # MVP: Only SKETCH and EXTRUDE supported
         if len(args) > 0:
             token = args[0]
             if isinstance(token, Token):
-                token_str = str(token)
-                # Map token type to feature type
-                if token.type in ['CYLINDER', 'HOLE', 'CHAMFER']:
-                    return token_str.lower()
-                return token_str.lower()
+                token_str = str(token).lower()
+                # Only allow sketch and extrude
+                if token.type in ['SKETCH', 'EXTRUDE']:
+                    return token_str
+                raise ValueError(f"Feature type '{token_str}' not supported in MVP. Only 'sketch' and 'extrude' are available.")
             return str(token).lower()
         return ""
     
@@ -119,6 +129,10 @@ class DSLTransformer(Transformer):
         return str(args[0])
     
     def feature_def(self, args):
+        # Check if this is already a processed sketch feature (from sketch_feature_def)
+        if len(args) == 1 and isinstance(args[0], dict) and "feature" in args[0]:
+            return args[0]
+        
         name = str(args[0])
         
         # args structure: [name, feature_type_result, feature_args]
@@ -131,9 +145,9 @@ class DSLTransformer(Transformer):
         else:
             feature_type_val = str(feature_type_val).lower()
         
-        # Validate it's one of the allowed types
-        if feature_type_val not in ["cylinder", "hole", "chamfer"]:
-            raise ValueError(f"Feature '{name}' has invalid type: {feature_type_val}")
+        # MVP: Only sketch and extrude are supported
+        if feature_type_val not in ["sketch", "extrude"]:
+            raise ValueError(f"Feature type '{feature_type_val}' not supported in MVP. Only 'sketch' and 'extrude' are available.")
         
         feature_args = args[2] if len(args) > 2 else {}
         
@@ -145,6 +159,193 @@ class DSLTransformer(Transformer):
             )
         }
     
+    def sketch_feature_def(self, args):
+        """Parse a sketch feature definition.
+        
+        Args structure: [name, sketch_args, sketch_body]
+        """
+        name = str(args[0])
+        sketch_args_dict = args[1] if len(args) > 1 else {}
+        sketch_body_dict = args[2] if len(args) > 2 else {}
+        
+        # Extract plane from sketch_args (remove quotes if present)
+        plane = sketch_args_dict.get("on_plane", "front_plane")
+        if isinstance(plane, str) and plane.startswith('"') and plane.endswith('"'):
+            plane = plane[1:-1]
+        
+        # Extract entities, constraints, dimensions from sketch_body
+        entities = sketch_body_dict.get("entities", [])
+        constraints = sketch_body_dict.get("constraints", [])
+        dimensions = sketch_body_dict.get("dimensions", [])
+        
+        sketch = Sketch(
+            name=name,
+            plane=plane,
+            entities=entities,
+            constraints=constraints,
+            dimensions=dimensions
+        )
+        
+        return {
+            "feature": Feature(
+                type="sketch",
+                name=name,
+                params={"plane": plane},
+                sketch=sketch
+            )
+        }
+    
+    def sketch_args(self, args):
+        """Parse sketch arguments (e.g., on_plane="right_plane")."""
+        result = {}
+        for arg in args:
+            if isinstance(arg, dict):
+                result.update(arg)
+        return result
+    
+    def sketch_arg(self, args):
+        """Parse a single sketch argument."""
+        key = str(args[0])
+        value = args[1] if len(args) > 1 else ""
+        if isinstance(value, Token):
+            value = str(value)
+        return {key: value}
+    
+    def sketch_body(self, args):
+        """Parse sketch body content."""
+        content = args[0] if args else {}
+        return {
+            "entities": content.get("entities", []),
+            "constraints": content.get("constraints", []),
+            "dimensions": content.get("dimensions", [])
+        }
+    
+    def sketch_content(self, args):
+        """Collect sketch content items."""
+        entities = []
+        constraints = []
+        dimensions = []
+        
+        for item in args:
+            if isinstance(item, dict):
+                if "entity" in item:
+                    entities.append(item["entity"])
+                elif "constraint" in item:
+                    constraints.append(item["constraint"])
+                elif "dimension" in item:
+                    dimensions.append(item["dimension"])
+        
+        return {
+            "entities": entities,
+            "constraints": constraints,
+            "dimensions": dimensions
+        }
+    
+    def sketch_line(self, args):
+        """Parse a line entity."""
+        # args: ["line", id, "from", point, "to", point]
+        entity_id = str(args[0])
+        from_point = args[2] if len(args) > 2 else (0.0, 0.0)
+        to_point = args[4] if len(args) > 4 else (0.0, 0.0)
+        return {
+            "entity": SketchEntity(
+                id=entity_id,
+                type="line",
+                start=from_point,
+                end=to_point
+            )
+        }
+    
+    def sketch_circle(self, args):
+        """Parse a circle entity."""
+        # args: ["circle", id, "center", point, "radius", value, unit?]
+        entity_id = str(args[0])
+        center = args[2] if len(args) > 2 else (0.0, 0.0)
+        radius = float(args[4]) if len(args) > 4 else 0.0
+        return {
+            "entity": SketchEntity(
+                id=entity_id,
+                type="circle",
+                center=center,
+                radius=radius
+            )
+        }
+    
+    def sketch_rectangle(self, args):
+        """Parse a rectangle entity."""
+        # args: ["rectangle", id, "from", point, "to", point]
+        entity_id = str(args[0])
+        corner1 = args[2] if len(args) > 2 else (0.0, 0.0)
+        corner2 = args[4] if len(args) > 4 else (0.0, 0.0)
+        return {
+            "entity": SketchEntity(
+                id=entity_id,
+                type="rectangle",
+                corner1=corner1,
+                corner2=corner2
+            )
+        }
+    
+    def point(self, args):
+        """Parse a point (x, y)."""
+        x = float(args[0]) if len(args) > 0 else 0.0
+        y = float(args[1]) if len(args) > 1 else 0.0
+        return (x, y)
+    
+    def sketch_constraint(self, args):
+        """Parse a sketch constraint."""
+        constraint_type = str(args[0]).lower()
+        entity_ids = args[1] if len(args) > 1 else []
+        
+        constraint_id = f"c_{len(args)}"  # Simple ID generation
+        
+        return {
+            "constraint": SketchConstraint(
+                id=constraint_id,
+                type=constraint_type,
+                entity_ids=entity_ids if isinstance(entity_ids, list) else [str(entity_ids)]
+            )
+        }
+    
+    def entity_list(self, args):
+        """Parse a list of entity IDs."""
+        return [str(arg) for arg in args]
+    
+    def sketch_dim_length(self, args):
+        """Parse a length dimension: dim_length(entity_id, value unit)."""
+        # args: [entity_id, value, unit?]
+        entity_id = str(args[0]) if len(args) > 0 else ""
+        value = float(args[1]) if len(args) > 1 else 0.0
+        unit = str(args[2]) if len(args) > 2 else "mm"
+        
+        dim_id = f"d_length_{entity_id}"
+        return {
+            "dimension": SketchDimension(
+                id=dim_id,
+                type="length",
+                entity_ids=[entity_id],
+                value=value,
+                unit=unit
+            )
+        }
+    
+    def sketch_dim_diameter(self, args):
+        """Parse a diameter dimension: dim_diameter(entity_id, value unit)."""
+        # args: [entity_id, value, unit?]
+        entity_id = str(args[0]) if len(args) > 0 else ""
+        value = float(args[1]) if len(args) > 1 else 0.0
+        unit = str(args[2]) if len(args) > 2 else "mm"
+        
+        dim_id = f"d_diameter_{entity_id}"
+        return {
+            "dimension": SketchDimension(
+                id=dim_id,
+                type="diameter",
+                entity_ids=[entity_id],
+                value=value,
+                unit=unit
+            )
+        }
     
     def feature_args(self, args):
         """Parse feature arguments into a dict."""

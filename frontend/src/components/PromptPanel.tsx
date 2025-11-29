@@ -106,7 +106,7 @@ export function PromptPanel({
           cursor: isLoading ? 'not-allowed' : 'pointer',
         }}
       >
-        {isLoading ? 'Processing...' : mode === 'create' ? 'Create Part' : mode === 'edit' ? 'Apply Changes' : 'Explain'}
+        {isLoading ? 'Processing...' : 'Send'}
       </button>
       
       {lastMessage && (
@@ -116,10 +116,12 @@ export function PromptPanel({
           backgroundColor: '#f0f0f0', 
           borderRadius: '4px',
           fontSize: '0.9em',
-          maxHeight: '150px',
+          maxHeight: '200px',
           overflow: 'auto',
+          whiteSpace: 'pre-wrap',
         }}>
-          <strong>Response:</strong> {lastMessage}
+          <strong>Response:</strong>
+          <div style={{ marginTop: '0.5rem' }}>{lastMessage}</div>
         </div>
       )}
     </div>

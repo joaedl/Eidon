@@ -55,21 +55,36 @@ export const api = {
   },
 
   /**
-   * Send command to agent.
+   * Send command to agent (intent-based, auto-detects intent).
    */
   async agentCommand(
-    mode: 'create' | 'edit' | 'explain',
     prompt: string,
     part: Part | null,
-    scope: { selected_feature_ids?: string[]; selected_param_names?: string[]; selected_chain_names?: string[] } = {}
-  ): Promise<{ part: Part | null; operations: Array<{ type: string; [key: string]: any }>; message: string; success: boolean }> {
+    selection: { 
+      selected_feature_ids?: string[]; 
+      selected_text_range?: { start: number; end: number };
+      selected_entity_ids?: string[];
+      sketch_name?: string;
+      sketch?: any; // Sketch type
+    } = {},
+    autoDetectIntent: boolean = true
+  ): Promise<{ 
+    intent: string;
+    part: Part | null; 
+    dsl: string | null; 
+    message: string; 
+    success: boolean;
+    validation_issues: Array<{ code: string; severity: string; message: string; related_params: string[]; related_features: string[]; related_chains: string[] }>;
+    script_code?: string;
+    sketch?: any; // Sketch type
+  }> {
     return fetchJSON('/agent/command', {
       method: 'POST',
       body: JSON.stringify({ 
-        mode,
         prompt,
         part: part || null,
-        scope,
+        selection,
+        auto_detect_intent: autoDetectIntent,
       }),
     });
   },
@@ -139,6 +154,26 @@ export const api = {
     }
 
     return response.blob();
+  },
+
+  /**
+   * Export part to SVG technical drawing.
+   */
+  async exportDrawing(part: Part): Promise<string> {
+    const response = await fetch(`${API_BASE}/export/drawing`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ part }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: response.statusText }));
+      throw new Error(error.detail || `HTTP ${response.status}`);
+    }
+
+    return response.text();
   },
 };
 

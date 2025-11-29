@@ -10,11 +10,52 @@ export interface Param {
   tolerance_class?: string | null;
 }
 
-export interface Feature {
-  type: "cylinder" | "hole" | "chamfer" | "joint_interface" | "link_body" | "pocket" | "fillet";
+// Sketch models
+// MVP: Only line, circle, and rectangle supported (no arc)
+export interface SketchEntity {
+  id: string;
+  type: 'line' | 'circle' | 'rectangle';
+  start?: [number, number];
+  end?: [number, number];
+  center?: [number, number];
+  radius?: number;
+  corner1?: [number, number];
+  corner2?: [number, number];
+  isConstruction?: boolean; // For construction lines (dashed, non-geometry)
+}
+
+// MVP: Only horizontal, vertical, and coincident supported
+export interface SketchConstraint {
+  id: string;
+  type: 'horizontal' | 'vertical' | 'coincident';
+  entity_ids: string[];
+  params?: Record<string, any>;
+}
+
+// MVP: Only length and diameter supported
+export interface SketchDimension {
+  id: string;
+  type: 'length' | 'diameter';
+  entity_ids: string[];
+  value: number;
+  unit: string;
+}
+
+export interface Sketch {
   name: string;
-  params: Record<string, string | number>;
+  plane: string;
+  entities: SketchEntity[];
+  constraints: SketchConstraint[];
+  dimensions: SketchDimension[];
+}
+
+// MVP: Only sketch and extrude supported
+export interface Feature {
+  type: "sketch" | "extrude";
+  name: string;
+  params: Record<string, string | number | any>;
   critical?: boolean;
+  sketch?: Sketch;
 }
 
 export interface Chain {
@@ -46,6 +87,7 @@ export interface Part {
   features: Feature[];
   chains: Chain[];
   constraints?: Constraint[];
+  sketches?: Sketch[];
 }
 
 export interface MeshData {
@@ -76,5 +118,6 @@ export interface RebuildResponse {
 
 export interface ApplyOperationsResponse extends RebuildResponse {
   part: Part;
+  dsl?: string;
 }
 

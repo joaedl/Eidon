@@ -5,41 +5,54 @@
 
 import { useState, useEffect } from 'react';
 import { Viewer3D } from './components/Viewer3D';
-import { SemanticTree } from './components/SemanticTree';
-import { ParameterPanel } from './components/ParameterPanel';
+import { FeatureTree } from './components/FeatureTree';
+import { PropertyPanel } from './components/PropertyPanel';
+import { TopMenuBar } from './components/TopMenuBar';
+import { CursorAgentPanel } from './components/CursorAgentPanel';
 import { IssuesPanel } from './components/IssuesPanel';
+import { SketchEditor } from './components/SketchEditor';
+import { PlaneSelectionDialog } from './components/PlaneSelectionDialog';
+import { ExtrudeDialog } from './components/ExtrudeDialog';
 import { DSLCodeEditor } from './components/DSLCodeEditor';
-import { PromptPanel } from './components/PromptPanel';
-import { QuickActionsToolbar } from './components/QuickActionsToolbar';
+// MVP: EdgeToolsPanel disabled
+import { ResizablePanel } from './components/ResizablePanel';
+import { CollapsiblePanel } from './components/CollapsiblePanel';
 import { api } from './api/client';
-import type { Part, RebuildResponse, ValidationIssue } from './types/ir';
+import type { Part, RebuildResponse, ValidationIssue, Sketch } from './types/ir';
 
 function App() {
   const [part, setPart] = useState<Part | null>(null);
   const [dsl, setDSL] = useState('');
   const [mesh, setMesh] = useState<RebuildResponse['mesh'] | null>(null);
+  // @ts-ignore - paramsEval used in PropertyPanel via selectedParam (future enhancement)
   const [paramsEval, setParamsEval] = useState<Record<string, { nominal: number; min: number; max: number }>>({});
   // @ts-ignore - chainsEval is set but not currently displayed in UI - kept for future use
   const [chainsEval, setChainsEval] = useState<Record<string, { nominal: number; min: number; max: number }>>({});
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [agentMessage, setAgentMessage] = useState<string>('');
-  const [selectedItem, setSelectedItem] = useState<{ type: 'param' | 'feature' | 'chain'; name: string } | null>(null);
   const [selectedFeatureId, setSelectedFeatureId] = useState<string | null>(null);
-  const [showNewPartDialog, setShowNewPartDialog] = useState(false);
-  const [availableTemplates, setAvailableTemplates] = useState<string[]>([]);
+  const [selectedSketchName, setSelectedSketchName] = useState<string | null>(null);
+  const [selectedParamName, setSelectedParamName] = useState<string | null>(null);
+  // MVP: Templates disabled - no dialog needed
+  const [sketchMode, setSketchMode] = useState<{ sketch: Sketch; featureName: string } | null>(null);
+  const [selectedEntityId, setSelectedEntityId] = useState<string | null>(null);
+  const [drawingSvg, setDrawingSvg] = useState<string | null>(null);
+  const [showPlaneDialog, setShowPlaneDialog] = useState(false);
+  const [showExtrudeDialog, setShowExtrudeDialog] = useState(false);
+  const [showDSLCode, setShowDSLCode] = useState(false);
+  
+  // Panel sizes (for resizable panels)
+  const [leftPanelWidth, setLeftPanelWidth] = useState(280);
+  const [rightPanelWidth, setRightPanelWidth] = useState(350);
+  const [propertiesPanelHeight, setPropertiesPanelHeight] = useState(300);
+  // MVP: EdgeToolsPanel disabled
+  // All panel size setters are used in ResizablePanel onResize callbacks
 
-  // Load templates on mount
-  useEffect(() => {
-    api.listTemplates().then(result => {
-      setAvailableTemplates(result.templates);
-    }).catch(console.error);
-  }, []);
-
-  // Show new part dialog if no part is loaded
+  // MVP: Auto-create empty part on mount if none exists
   useEffect(() => {
     if (!part && !isLoading) {
-      setShowNewPartDialog(true);
+      handleCreateNewPart();
     }
   }, [part, isLoading]);
 
@@ -75,6 +88,7 @@ function App() {
     }
   };
 
+  // @ts-ignore - handleParseDSL will be used when DSL code editor is expanded
   const handleParseDSL = async () => {
     await loadModelFromDSL(dsl);
   };
@@ -132,6 +146,7 @@ function App() {
     }
   };
 
+  // @ts-ignore - handleApplyOperations will be used in TopMenuBar tools (extrude, cut, etc.)
   const handleApplyOperations = async (operations: Array<{ type: string; [key: string]: any }>) => {
     if (!part) return;
     
@@ -143,6 +158,9 @@ function App() {
       setParamsEval(response.params_eval);
       setChainsEval(response.chains_eval);
       setIssues(response.issues || []);
+      if (response.dsl) {
+        setDSL(response.dsl);
+      }
     } catch (error) {
       console.error('Failed to apply operations:', error);
       alert(`Failed to apply operations: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -195,29 +213,52 @@ function App() {
     }
   };
 
-  const handleAgentCommand = async (mode: 'create' | 'edit' | 'explain', prompt: string, scopeToSelection: boolean) => {
+  const handleAgentCommand = async (_mode: 'create' | 'edit' | 'explain', prompt: string, _scopeToSelection: boolean) => {
     try {
       setIsLoading(true);
       
-      // Build scope
-      const scope: { selected_feature_ids?: string[]; selected_param_names?: string[]; selected_chain_names?: string[] } = {};
-      if (scopeToSelection && selectedFeatureId) {
-        scope.selected_feature_ids = [selectedFeatureId];
+      // Build selection context
+      const selection: { selected_feature_ids?: string[]; selected_text_range?: { start: number; end: number } } = {};
+      if (_scopeToSelection && selectedFeatureId) {
+        selection.selected_feature_ids = [selectedFeatureId];
       }
+      // TODO: Add text range selection from DSL editor
       
-      const response = await api.agentCommand(mode, prompt, part, scope);
+      // Use new intent-based API (auto-detects intent)
+      const response = await api.agentCommand(prompt, part, selection, true);
       setAgentMessage(response.message);
       
-      if (mode === 'explain') {
-        // Explain mode: just show message, don't modify part
+      // Handle based on detected intent
+      if (response.intent === 'chat_model') {
+        // Pure chat - just show message, no changes
         // Message is already set above
-      } else if (response.success && response.part) {
-        // Create or Edit mode: update part and rebuild
-        setPart(response.part);
-        await rebuildModel(response.part);
+      } else if (response.intent === 'edit_dsl') {
+        // DSL or parameter edits - update part and DSL
+        if (response.success && response.part) {
+          setPart(response.part);
+          if (response.dsl) {
+            setDSL(response.dsl);
+          }
+          // Update validation issues
+          if (response.validation_issues) {
+            setIssues(response.validation_issues as ValidationIssue[]);
+          }
+          await rebuildModel(response.part);
+        }
+      } else if (response.intent === 'generate_script') {
+        // Script generation - show code in message or separate panel
+        if (response.script_code) {
+          setAgentMessage(`${response.message}\n\n--- Generated Code ---\n\n${response.script_code}`);
+        }
       } else {
-        // Error case
-        setAgentMessage(response.message || 'Agent command failed');
+        // Fallback or legacy mode
+        if (response.success && response.part) {
+          setPart(response.part);
+          if (response.dsl) {
+            setDSL(response.dsl);
+          }
+          await rebuildModel(response.part);
+        }
       }
     } catch (error) {
       console.error('Agent command failed:', error);
@@ -227,14 +268,15 @@ function App() {
     }
   };
 
-  const handleCreateNewPart = async (template: string) => {
+  // MVP: Create empty part (templates disabled)
+  const handleCreateNewPart = async () => {
     try {
       setIsLoading(true);
-      const result = await api.createNewPart(template);
+      // Template parameter ignored - backend always returns empty DSL
+      const result = await api.createNewPart('new_part');
       setPart(result.part);
       setDSL(result.dsl);
       await rebuildModel(result.part);
-      setShowNewPartDialog(false);
     } catch (error) {
       console.error('Failed to create new part:', error);
       alert(`Failed to create new part: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -246,12 +288,35 @@ function App() {
   const handleIssueClick = (issue: ValidationIssue) => {
     // Focus on related items
     if (issue.related_params.length > 0) {
-      setSelectedItem({ type: 'param', name: issue.related_params[0] });
+      setSelectedParamName(issue.related_params[0]);
+      setSelectedFeatureId(null);
+      setSelectedSketchName(null);
     } else if (issue.related_features.length > 0) {
-      setSelectedItem({ type: 'feature', name: issue.related_features[0] });
-    } else if (issue.related_chains.length > 0) {
-      setSelectedItem({ type: 'chain', name: issue.related_chains[0] });
+      setSelectedFeatureId(issue.related_features[0]);
+      setSelectedParamName(null);
+      setSelectedSketchName(null);
     }
+  };
+
+  // Get selected entities for property panel
+  const selectedFeature = part && selectedFeatureId
+    ? part.features.find(f => f.name === selectedFeatureId) || null
+    : null;
+  
+  const selectedSketch = part && selectedSketchName
+    ? (part.features.find(f => f.type === 'sketch' && f.name === selectedSketchName)?.sketch ||
+       part.sketches?.find(s => s.name === selectedSketchName) ||
+       null)
+    : null;
+  
+  const selectedParam = part && selectedParamName
+    ? part.params[selectedParamName] || null
+    : null;
+
+  const handleAgentSend = async (agentMode: 'agent' | 'ask' | 'plan', prompt: string) => {
+    // Map Cursor modes to our agent modes
+    const mode = agentMode === 'ask' ? 'explain' : agentMode === 'plan' ? 'explain' : 'edit';
+    await handleAgentCommand(mode, prompt, false);
   };
 
   return (
@@ -262,131 +327,221 @@ function App() {
         height: '100vh',
         width: '100vw',
         overflow: 'hidden',
+        backgroundColor: '#f5f5f5'
       }}
     >
-      {/* Top bar */}
-      <div
-        style={{
-          padding: '1rem',
-          backgroundColor: '#2c3e50',
-          color: 'white',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
+      {/* Top Menu Bar */}
+      <TopMenuBar
+        onNewPart={handleCreateNewPart}
+        onSave={() => {/* TODO: Implement save */}}
+        onExportSTL={handleExportSTL}
+        onExportSTEP={handleExportSTEP}
+        onViewDrawing={async () => {
+          if (!part) return;
+          try {
+            setIsLoading(true);
+            const svgText = await api.exportDrawing(part);
+            setDrawingSvg(svgText);
+            setSketchMode(null); // Exit sketch mode if active
+          } catch (error) {
+            console.error('Failed to export drawing:', error);
+            alert(`Failed to export drawing: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          } finally {
+            setIsLoading(false);
+          }
         }}
-      >
-        <h1 style={{ margin: 0 }}>Eidos CAD</h1>
-        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          {isLoading && <div>Loading...</div>}
-          <button
-            onClick={() => setShowNewPartDialog(true)}
-            style={{
-              padding: '0.5rem 1rem',
-              backgroundColor: '#4a90e2',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-            }}
-          >
-            New Part
-          </button>
-          {part && (
-            <>
-              <button
-                onClick={handleExportSTL}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
-              >
-                Export STL
-              </button>
-              <button
-                onClick={handleExportSTEP}
-                style={{
-                  padding: '0.5rem 1rem',
-                  backgroundColor: '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                }}
-              >
-                Export STEP
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+        onSketchMode={async () => {
+          if (!part) return;
+          
+          // Find first sketch or create new
+          let sketchFeature = part.features.find(f => f.type === 'sketch' && f.sketch);
+          
+          if (sketchFeature && sketchFeature.sketch) {
+            // Open existing sketch
+            setSketchMode({ sketch: sketchFeature.sketch, featureName: sketchFeature.name });
+            setDrawingSvg(null); // Exit drawing view if active
+          } else {
+            // Show plane selection dialog
+            setShowPlaneDialog(true);
+          }
+        }}
+        onExtrude={() => {
+          if (part) {
+            const sketches = part.features
+              .filter(f => f.type === 'sketch' && f.sketch)
+              .map(f => ({ name: f.name, plane: f.sketch?.plane || 'unknown' }));
+            if (sketches.length > 0) {
+              setShowExtrudeDialog(true);
+            } else {
+              alert('No sketches available. Please create a sketch first.');
+            }
+          }
+        }}
+        onCut={() => {/* TODO: Implement cut dialog */}}
+        // MVP: Chamfer and Fillet disabled
+        hasPart={!!part}
+        isSketchMode={!!sketchMode}
+      />
 
-      {/* New Part Dialog */}
-      {showNewPartDialog && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
+      {/* Plane Selection Dialog */}
+      <PlaneSelectionDialog
+        isOpen={showPlaneDialog}
+        onClose={() => setShowPlaneDialog(false)}
+        onSelect={async (plane) => {
+          setShowPlaneDialog(false);
+          // Create new empty sketch with selected plane
+          try {
+            setIsLoading(true);
+            
+            // Create a new sketch feature with empty sketch
+            const newSketchName = `sketch_${Date.now()}`;
+            const newSketch: Sketch = {
+              name: newSketchName,
+              plane: plane,
+              entities: [],
+              constraints: [],
+              dimensions: []
+            };
+              
+              const newSketchFeature = {
+                type: 'sketch' as const,
+                name: newSketchName,
+                params: { plane: plane },
+                sketch: newSketch,
+                critical: false
+              };
+              
+              // Add sketch feature to part
+              const updatedPart = {
+                ...part,
+                features: [...part.features, newSketchFeature]
+              };
+              
+              // Update DSL to include the new sketch
+              let currentDSL = dsl.trim();
+              if (!currentDSL || !currentDSL.includes('part')) {
+                currentDSL = `part ${part.name || 'new_part'} {\n}`;
+              }
+              
+              const sketchDSL = `  feature ${newSketchName} = sketch(on_plane="${plane}") {\n  }`;
+              
+              // Insert sketch before closing brace
+              const dslLines = currentDSL.split('\n');
+              const lastBraceIndex = dslLines.length - 1;
+              const updatedDSL = [
+                ...dslLines.slice(0, lastBraceIndex),
+                sketchDSL,
+                dslLines[lastBraceIndex]
+              ].join('\n');
+              
+              // Parse the updated DSL to ensure it's valid
+              let finalPart = updatedPart;
+              try {
+                const parsedPart = await api.parseDSL(updatedDSL);
+                finalPart = parsedPart;
+                setPart(parsedPart);
+                setDSL(updatedDSL);
+                
+                // Find the newly created sketch feature
+                const createdSketchFeature = parsedPart.features.find(f => f.type === 'sketch' && f.name === newSketchName);
+                if (createdSketchFeature && createdSketchFeature.sketch) {
+                  setSketchMode({ sketch: createdSketchFeature.sketch, featureName: newSketchName });
+                } else {
+                  // Fallback to the sketch we created
+                  setSketchMode({ sketch: newSketch, featureName: newSketchName });
+                }
+              } catch (parseError) {
+                // If parsing fails, use the manually constructed part
+                console.warn('DSL parsing failed, using manually constructed part:', parseError);
+                setPart(updatedPart);
+                setDSL(updatedDSL);
+                setSketchMode({ sketch: newSketch, featureName: newSketchName });
+              }
+              
+              setDrawingSvg(null);
+              
+              // Rebuild model (though empty sketch won't generate geometry)
+              await rebuildModel(finalPart);
+            } catch (error) {
+              console.error('Failed to create sketch:', error);
+              alert(`Failed to create sketch: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            } finally {
+              setIsLoading(false);
+            }
           }}
-        >
-          <div
-            style={{
-              backgroundColor: 'white',
-              padding: '2rem',
-              borderRadius: '8px',
-              minWidth: '400px',
-            }}
-          >
-            <h2 style={{ marginTop: 0 }}>Create New Part</h2>
-            <p>Select a template:</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {availableTemplates.map(template => (
-                <button
-                  key={template}
-                  onClick={() => handleCreateNewPart(template)}
-                  style={{
-                    padding: '0.75rem',
-                    backgroundColor: '#4a90e2',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: 'pointer',
-                    textAlign: 'left',
-                  }}
-                >
-                  {template.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={() => setShowNewPartDialog(false)}
-              style={{
-                marginTop: '1rem',
-                padding: '0.5rem 1rem',
-                backgroundColor: '#ccc',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+      />
 
-      {/* Main content area */}
+      {/* Extrude Dialog */}
+      <ExtrudeDialog
+        isOpen={showExtrudeDialog}
+        onClose={() => setShowExtrudeDialog(false)}
+        onExtrude={async (sketchName, distance, operation) => {
+          if (!part) return;
+          try {
+            setIsLoading(true);
+            
+            // Create extrude feature
+            const extrudeName = `extrude_${sketchName}_${Date.now()}`;
+            const extrudeFeature = {
+              type: 'extrude' as const,
+              name: extrudeName,
+              params: {
+                sketch: sketchName,
+                distance: distance,
+                operation: operation
+              },
+              critical: false
+            };
+            
+            // Add to part
+            const updatedPart = {
+              ...part,
+              features: [...part.features, extrudeFeature]
+            };
+            
+            // Update DSL
+            let currentDSL = dsl.trim();
+            if (!currentDSL || !currentDSL.includes('part')) {
+              currentDSL = `part ${part.name || 'new_part'} {\n}`;
+            }
+            
+            const extrudeDSL = `  feature ${extrudeName} = extrude(sketch="${sketchName}", distance=${distance} mm, operation="${operation}")`;
+            
+            const dslLines = currentDSL.split('\n');
+            const lastBraceIndex = dslLines.length - 1;
+            const updatedDSL = [
+              ...dslLines.slice(0, lastBraceIndex),
+              extrudeDSL,
+              dslLines[lastBraceIndex]
+            ].join('\n');
+            
+            // Parse and rebuild
+            try {
+              const parsedPart = await api.parseDSL(updatedDSL);
+              setPart(parsedPart);
+              setDSL(updatedDSL);
+              await rebuildModel(parsedPart);
+            } catch (parseError) {
+              console.warn('DSL parsing failed, using manually constructed part:', parseError);
+              setPart(updatedPart);
+              setDSL(updatedDSL);
+              await rebuildModel(updatedPart);
+            }
+          } catch (error) {
+            console.error('Failed to create extrude:', error);
+            alert(`Failed to create extrude: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          } finally {
+            setIsLoading(false);
+          }
+        }}
+        availableSketches={part ? part.features
+          .filter(f => f.type === 'sketch' && f.sketch)
+          .map(f => ({ name: f.name, plane: f.sketch?.plane || 'unknown' })) : []}
+      />
+
+      {/* MVP: Templates disabled - no dialog */}
+
+      {/* Main content area - FreeCAD-style layout with resizable panels */}
       <div
         style={{
           display: 'flex',
@@ -394,136 +549,313 @@ function App() {
           overflow: 'hidden',
         }}
       >
-        {/* 3D Viewer (left) */}
+        {/* Left: Feature Tree + Properties (resizable) */}
+        <ResizablePanel
+          direction="horizontal"
+          defaultSize={leftPanelWidth}
+          minSize={150}
+          maxSize={600}
+          onResize={setLeftPanelWidth}
+        >
+          <div
+            style={{
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              backgroundColor: '#fafafa',
+              borderRight: '1px solid #ddd'
+            }}
+          >
+            {/* Feature Tree (top, collapsible) */}
+            <CollapsiblePanel
+              title={part?.name || 'No Part'}
+              defaultExpanded={true}
+              icon="📦"
+            >
+              <FeatureTree
+                part={part}
+                selectedFeatureId={selectedFeatureId}
+                selectedSketchName={selectedSketchName}
+                onFeatureSelect={(featureId) => {
+                  setSelectedFeatureId(featureId);
+                  setSelectedSketchName(null);
+                  setSelectedParamName(null);
+                  if (featureId && part) {
+                    const feature = part.features.find(f => f.name === featureId);
+                    if (feature?.type === 'sketch' && feature.sketch) {
+                      setSketchMode({ sketch: feature.sketch, featureName: featureId });
+                    } else {
+                      setSketchMode(null);
+                    }
+                  }
+                }}
+                onSketchSelect={(sketchName) => {
+                  setSelectedSketchName(sketchName);
+                  setSelectedFeatureId(null);
+                  setSelectedParamName(null);
+                  if (sketchName && part) {
+                    const sketchFeature = part.features.find(f => f.type === 'sketch' && f.name === sketchName);
+                    if (sketchFeature?.sketch) {
+                      setSketchMode({ sketch: sketchFeature.sketch, featureName: sketchName });
+                    }
+                  }
+                }}
+                onFeatureRightClick={(_featureId, _event) => {
+                  // TODO: Show context menu
+                }}
+              />
+            </CollapsiblePanel>
+
+            {/* Properties Panel (bottom, resizable) */}
+            <ResizablePanel
+              direction="vertical"
+              defaultSize={propertiesPanelHeight}
+              minSize={100}
+              maxSize={800}
+              onResize={setPropertiesPanelHeight}
+            >
+              <CollapsiblePanel
+                title="Properties"
+                defaultExpanded={true}
+                icon="⚙️"
+              >
+                <PropertyPanel
+                  part={part}
+                  selectedFeature={selectedFeature}
+                  selectedSketch={selectedSketch}
+                  selectedParam={selectedParam}
+                  onParamChange={(name, value) => {
+                    setSelectedParamName(name);
+                    handleParamChange(name, value);
+                  }}
+                  onToleranceChange={(name, tolerance) => {
+                    handleToleranceChange(name, tolerance);
+                  }}
+                  onApply={handleApplyChanges}
+                />
+              </CollapsiblePanel>
+            </ResizablePanel>
+          </div>
+        </ResizablePanel>
+
+        {/* Center: 3D Viewport, Sketch Editor, or Drawing View */}
         <div
           style={{
             flex: 1,
-            backgroundColor: '#1a1a1a',
-            position: 'relative',
             display: 'flex',
             flexDirection: 'column',
+            backgroundColor: sketchMode || drawingSvg ? '#fff' : '#1a1a1a',
+            position: 'relative'
           }}
         >
-          <QuickActionsToolbar
-            part={part}
-            selectedFeatureId={selectedFeatureId}
-            onApplyOperations={handleApplyOperations}
-          />
-          <div style={{ flex: 1, position: 'relative' }}>
+          {drawingSvg ? (
+            <div style={{
+              width: '100%',
+              height: '100%',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '2rem',
+              overflow: 'auto'
+            }}>
+              <div
+                dangerouslySetInnerHTML={{ __html: drawingSvg }}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%'
+                }}
+              />
+            </div>
+          ) : sketchMode ? (
+            <>
+              <div style={{
+                padding: '0.5rem',
+                borderBottom: '1px solid #ccc',
+                backgroundColor: '#f0f0f0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center'
+              }}>
+                <h3 style={{ margin: 0, fontSize: '1em' }}>Sketch: {sketchMode.sketch.name}</h3>
+                <button
+                  onClick={() => {
+                    setSketchMode(null);
+                    setSelectedSketchName(null);
+                  }}
+                  style={{
+                    padding: '0.25rem 0.75rem',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '0.9em'
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+              <SketchEditor
+                sketch={sketchMode.sketch}
+                onSketchChange={async (updatedSketch) => {
+                  if (part) {
+                    const updatedPart = { ...part };
+                    const featureIndex = updatedPart.features.findIndex(
+                      f => f.type === 'sketch' && f.name === sketchMode.featureName
+                    );
+                    if (featureIndex >= 0) {
+                      updatedPart.features[featureIndex] = {
+                        ...updatedPart.features[featureIndex],
+                        sketch: updatedSketch
+                      };
+                    }
+                    setPart(updatedPart);
+                    setSketchMode({ sketch: updatedSketch, featureName: sketchMode.featureName });
+                    await rebuildModel(updatedPart);
+                  }
+                }}
+                onEntitySelect={setSelectedEntityId}
+                selectedEntityId={selectedEntityId}
+                onPrompt={async (prompt) => {
+                  if (part && sketchMode) {
+                    try {
+                      setIsLoading(true);
+                      const response = await api.agentCommand(
+                        prompt,
+                        part,
+                        {
+                          sketch_name: sketchMode.featureName,
+                          sketch: sketchMode.sketch,
+                          selected_entity_ids: selectedEntityId ? [selectedEntityId] : []
+                        },
+                        true
+                      );
+                      
+                      if (response.intent === 'edit_sketch' && response.success && response.sketch) {
+                        setSketchMode({ sketch: response.sketch, featureName: sketchMode.featureName });
+                        setAgentMessage(response.message);
+                        if (response.part) {
+                          setPart(response.part);
+                          if (response.dsl) setDSL(response.dsl);
+                          await rebuildModel(response.part);
+                        }
+                      } else {
+                        setAgentMessage(response.message || 'Sketch edit failed');
+                      }
+                    } catch (error) {
+                      console.error('Sketch edit failed:', error);
+                      setAgentMessage(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    } finally {
+                      setIsLoading(false);
+                    }
+                  }
+                }}
+                isLoading={isLoading}
+                lastMessage={agentMessage}
+              />
+            </>
+          ) : (
             <Viewer3D 
               mesh={mesh} 
               selectedFeatureId={selectedFeatureId}
               onFeatureSelect={(featureId) => {
                 setSelectedFeatureId(featureId);
-                if (featureId) {
-                  setSelectedItem({ type: 'feature', name: featureId });
-                }
+                setSelectedSketchName(null);
+                setSelectedParamName(null);
               }}
             />
-          </div>
+          )}
         </div>
 
-        {/* Side panels (right) */}
-        <div
-          style={{
-            width: '450px',
-            display: 'flex',
-            flexDirection: 'column',
-            borderLeft: '1px solid #ccc',
-            overflow: 'hidden',
-          }}
+        {/* Right: Edge Tools + Issues + AI Agent (resizable) */}
+        <ResizablePanel
+          direction="horizontal"
+          defaultSize={rightPanelWidth}
+          minSize={200}
+          maxSize={600}
+          onResize={setRightPanelWidth}
         >
-          {/* Semantic Tree */}
           <div
             style={{
-              height: '200px',
-              borderBottom: '1px solid #ccc',
-              overflow: 'auto',
+              width: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+              borderLeft: '1px solid #ddd',
+              backgroundColor: '#fff'
             }}
           >
-            <SemanticTree
-              part={part}
-              selectedItem={selectedItem}
-              onSelect={(type, name) => {
-                setSelectedItem({ type, name });
-                if (type === 'feature') {
-                  setSelectedFeatureId(name);
-                } else if (type === 'param') {
-                  // Scroll to param in parameter panel (handled by highlightedParam prop)
-                  setSelectedFeatureId(null);
-                } else {
-                  setSelectedFeatureId(null);
-                }
+            {/* MVP: Edge Tools Panel disabled */}
+
+            {/* Issues Panel (middle, collapsible) */}
+            <CollapsiblePanel
+              title="Issues"
+              defaultExpanded={true}
+              icon="⚠️"
+            >
+              <IssuesPanel
+                issues={issues}
+                onIssueClick={handleIssueClick}
+              />
+            </CollapsiblePanel>
+
+            {/* AI Agent Panel (bottom, collapsible) - Cursor style */}
+            <CollapsiblePanel
+              title="AI Agent"
+              defaultExpanded={true}
+              icon="🤖"
+            >
+              <CursorAgentPanel
+                onSend={handleAgentSend}
+                isLoading={isLoading}
+                lastMessage={agentMessage}
+                mode={sketchMode ? 'sketch' : '3d'}
+              />
+            </CollapsiblePanel>
+          </div>
+        </ResizablePanel>
+
+        {/* DSL Code Editor Panel (bottom, collapsible) */}
+        <CollapsiblePanel
+          title="DSL Code"
+          defaultExpanded={false}
+          icon="📝"
+        >
+          <div style={{ padding: '1rem', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+              <h3 style={{ margin: 0, fontSize: '1em' }}>Part DSL Code</h3>
+            </div>
+            <textarea
+              value={dsl}
+              onChange={(e) => setDSL(e.target.value)}
+              style={{
+                flex: 1,
+                fontFamily: 'monospace',
+                fontSize: '14px',
+                padding: '0.5rem',
+                border: '1px solid #ccc',
+                borderRadius: '4px',
+                resize: 'none',
+                minHeight: '200px'
               }}
+              spellCheck={false}
+              placeholder="DSL code will appear here..."
             />
+            <button
+              onClick={handleParseDSL}
+              style={{
+                marginTop: '0.5rem',
+                padding: '0.5rem 1rem',
+                backgroundColor: '#4a90e2',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer'
+              }}
+            >
+              Apply Code
+            </button>
           </div>
-
-          {/* Parameter Panel */}
-          <div
-            style={{
-              flex: 1,
-              borderBottom: '1px solid #ccc',
-              overflow: 'auto',
-            }}
-          >
-            <ParameterPanel
-              part={part}
-              onParamChange={handleParamChange}
-              onToleranceChange={handleToleranceChange}
-              onApply={handleApplyChanges}
-              paramsEval={paramsEval}
-              highlightedParam={selectedItem?.type === 'param' ? selectedItem.name : null}
-            />
-          </div>
-
-          {/* Issues Panel */}
-          <div
-            style={{
-              height: '200px',
-              borderBottom: '1px solid #ccc',
-              overflow: 'auto',
-            }}
-          >
-            <IssuesPanel issues={issues} onIssueClick={handleIssueClick} />
-          </div>
-        </div>
-      </div>
-
-      {/* Bottom panel: Code & Prompt */}
-      <div
-        style={{
-          height: '250px',
-          borderTop: '1px solid #ccc',
-          display: 'flex',
-          overflow: 'hidden',
-        }}
-      >
-        {/* DSL Code Editor (collapsible) */}
-        <div
-          style={{
-            width: '50%',
-            borderRight: '1px solid #ccc',
-            overflow: 'auto',
-          }}
-        >
-          <DSLCodeEditor dsl={dsl} onDSLChange={setDSL} onParse={handleParseDSL} />
-        </div>
-
-        {/* Prompt Panel */}
-        <div
-          style={{
-            flex: 1,
-            overflow: 'auto',
-          }}
-        >
-          <PromptPanel
-            onSend={handleAgentCommand}
-            isLoading={isLoading}
-            lastMessage={agentMessage}
-            hasPart={part !== null}
-            hasSelection={selectedFeatureId !== null}
-          />
-        </div>
+        </CollapsiblePanel>
       </div>
     </div>
   );

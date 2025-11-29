@@ -6,7 +6,7 @@ This module evaluates parameters with tolerances and calculates
 """
 
 from typing import Optional
-from app.core.ir import Part, Param, Chain, ValidationIssue, Feature
+from app.core.ir import Part, Param, Chain, ValidationIssue, Sketch, SketchEntity, SketchConstraint, SketchDimension, Feature
 
 
 # Simple tolerance class lookup table (MVP: hardcoded for a few common classes)
@@ -246,27 +246,180 @@ def validate_part(part: Part) -> list[ValidationIssue]:
                     related_params=chain.terms
                 ))
     
-    # Check for underconstrained models
-    # If there are multiple features but no constraints, warn
-    if len(part.features) > 1 and len(part.constraints) == 0:
-        issues.append(ValidationIssue(
-            code="UNDERCONSTRAINED_MODEL",
-            severity="warning",
-            message=f"Model has {len(part.features)} features but no constraints defined. "
-                   f"Model may be underconstrained.",
-            related_features=[f.name for f in part.features]
-        ))
+    # MVP: Removed generic underconstrained model check (too generic)
+    # MVP: Removed critical features check (not in MVP scope)
     
-    # Check for critical features without constraints
-    critical_features = [f for f in part.features if f.critical]
-    if critical_features and len(part.constraints) == 0:
-        issues.append(ValidationIssue(
-            code="UNCONSTRAINED_FEATURE",
-            severity="warning",
-            message=f"Critical features {[f.name for f in critical_features]} have no constraints",
-            related_features=[f.name for f in critical_features]
-        ))
+    # Rule 6: Validate sketches
+    for sketch in part.sketches:
+        issues.extend(validate_sketch(sketch))
+    
+    # Also validate sketches embedded in sketch features
+    for feature in part.features:
+        if feature.type == "sketch" and feature.sketch:
+            issues.extend(validate_sketch(feature.sketch))
     
     return issues
+
+
+def validate_sketch(sketch: Sketch) -> list[ValidationIssue]:
+    """
+    Validate a sketch for constraint and dimension issues.
+    
+    For MVP, performs simple checks:
+    - Unconstrained entities (entities without constraints or dimensions)
+    - Trivial contradictions (dimensions that don't match entity geometry)
+    - Over/under-constrained detection (simple heuristic)
+    
+    Args:
+        sketch: The sketch to validate
+        
+    Returns:
+        List of validation issues
+    """
+    issues: list[ValidationIssue] = []
+    
+    # Build a map of which entities are referenced
+    entity_ids = {e.id for e in sketch.entities}
+    constrained_entities = set()
+    dimensioned_entities = set()
+    
+    # Check constraints
+    for constraint in sketch.constraints:
+        for entity_id in constraint.entity_ids:
+            if entity_id in entity_ids:
+                constrained_entities.add(entity_id)
+            else:
+                issues.append(ValidationIssue(
+                    code="SKETCH_CONSTRAINT_REF_INVALID",
+                    severity="error",
+                    message=f"Constraint '{constraint.id}' references non-existent entity '{entity_id}' in sketch '{sketch.name}'",
+                    related_features=[sketch.name]
+                ))
+    
+    # Check dimensions
+    for dimension in sketch.dimensions:
+        for entity_id in dimension.entity_ids:
+            if entity_id in entity_ids:
+                dimensioned_entities.add(entity_id)
+            else:
+                issues.append(ValidationIssue(
+                    code="SKETCH_DIMENSION_REF_INVALID",
+                    severity="error",
+                    message=f"Dimension '{dimension.id}' references non-existent entity '{entity_id}' in sketch '{sketch.name}'",
+                    related_features=[sketch.name]
+                ))
+    
+    # Check for unconstrained entities (warning, not error)
+    for entity in sketch.entities:
+        if entity.id not in constrained_entities and entity.id not in dimensioned_entities:
+            issues.append(ValidationIssue(
+                code="SKETCH_ENTITY_UNCONSTRAINED",
+                severity="warning",
+                message=f"Entity '{entity.id}' in sketch '{sketch.name}' has no constraints or dimensions",
+                related_features=[sketch.name]
+            ))
+    
+    # Simple geometry validation: check if dimensions match entity geometry (for lines)
+    for dimension in sketch.dimensions:
+        if dimension.type == "length":
+            entity_id = dimension.entity_ids[0]
+            entity = next((e for e in sketch.entities if e.id == entity_id), None)
+            if entity and entity.type == "line":
+                # Calculate actual length
+                if entity.start and entity.end:
+                    dx = entity.end[0] - entity.start[0]
+                    dy = entity.end[1] - entity.start[1]
+                    actual_length = (dx**2 + dy**2)**0.5
+                    # Allow small tolerance (1% or 0.1mm)
+                    tolerance = max(actual_length * 0.01, 0.1)
+                    if abs(actual_length - dimension.value) > tolerance:
+                        issues.append(ValidationIssue(
+                            code="SKETCH_DIMENSION_MISMATCH",
+                            severity="warning",
+                            message=f"Dimension '{dimension.id}' value ({dimension.value} {dimension.unit}) doesn't match entity '{entity_id}' geometry (length ≈ {actual_length:.2f} {dimension.unit})",
+                            related_features=[sketch.name]
+                        ))
+    
+    # MVP: Check for conflicting dimensions (same entity dimensioned multiple times with different values)
+    entity_dimensions: dict[str, list[SketchDimension]] = {}
+    for dimension in sketch.dimensions:
+        for entity_id in dimension.entity_ids:
+            if entity_id not in entity_dimensions:
+                entity_dimensions[entity_id] = []
+            entity_dimensions[entity_id].append(dimension)
+    
+    for entity_id, dims in entity_dimensions.items():
+        if len(dims) > 1:
+            # Check if values conflict (for same dimension type)
+            length_dims = [d for d in dims if d.type == "length"]
+            diameter_dims = [d for d in dims if d.type == "diameter"]
+            
+            if len(length_dims) > 1:
+                values = [d.value for d in length_dims]
+                if len(set(values)) > 1:
+                    issues.append(ValidationIssue(
+                        code="SKETCH_CONFLICTING_DIMENSIONS",
+                        severity="error",
+                        message=f"Entity '{entity_id}' has conflicting length dimensions: {values}",
+                        related_features=[sketch.name]
+                    ))
+            
+            if len(diameter_dims) > 1:
+                values = [d.value for d in diameter_dims]
+                if len(set(values)) > 1:
+                    issues.append(ValidationIssue(
+                        code="SKETCH_CONFLICTING_DIMENSIONS",
+                        severity="error",
+                        message=f"Entity '{entity_id}' has conflicting diameter dimensions: {values}",
+                        related_features=[sketch.name]
+                    ))
+    
+    # MVP: Simple check for overlapping entities (lines that are too close)
+    for i, entity1 in enumerate(sketch.entities):
+        for entity2 in sketch.entities[i+1:]:
+            if entity1.type == "line" and entity2.type == "line":
+                if entity1.start and entity1.end and entity2.start and entity2.end:
+                    # Check if lines are very close (within 0.1mm)
+                    dist1 = point_to_line_distance(entity2.start, entity1.start, entity1.end)
+                    dist2 = point_to_line_distance(entity2.end, entity1.start, entity1.end)
+                    if dist1 < 0.1 and dist2 < 0.1:
+                        issues.append(ValidationIssue(
+                            code="SKETCH_OVERLAPPING_ENTITIES",
+                            severity="warning",
+                            message=f"Entities '{entity1.id}' and '{entity2.id}' appear to overlap",
+                            related_features=[sketch.name]
+                        ))
+    
+    return issues
+
+
+def point_to_line_distance(point: tuple[float, float], line_start: tuple[float, float], line_end: tuple[float, float]) -> float:
+    """Calculate distance from a point to a line segment."""
+    x0, y0 = point
+    x1, y1 = line_start
+    x2, y2 = line_end
+    
+    A = x0 - x1
+    B = y0 - y1
+    C = x2 - x1
+    D = y2 - y1
+    
+    dot = A * C + B * D
+    len_sq = C * C + D * D
+    param = -1
+    if len_sq != 0:
+        param = dot / len_sq
+    
+    if param < 0:
+        xx, yy = x1, y1
+    elif param > 1:
+        xx, yy = x2, y2
+    else:
+        xx = x1 + param * C
+        yy = y1 + param * D
+    
+    dx = x0 - xx
+    dy = y0 - yy
+    return (dx * dx + dy * dy) ** 0.5
 
 

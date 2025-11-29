@@ -6,7 +6,7 @@ in a language-agnostic way. The IR can be generated from DSL, modified by users,
 and used to build geometry and perform analyses.
 """
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Any
 from pydantic import BaseModel, Field
 
 
@@ -25,20 +25,24 @@ class Param(BaseModel):
 class Feature(BaseModel):
     """Represents a geometric feature in the part."""
     
-    type: Literal["cylinder", "hole", "chamfer", "joint_interface", "link_body", "pocket", "fillet"] = Field(
+    # MVP: Only sketch and extrude supported
+    type: Literal["sketch", "extrude"] = Field(
         ..., 
-        description="Type of feature"
+        description="Type of feature (MVP: only sketch and extrude)"
     )
     name: str = Field(..., description="Feature name")
     
     # Feature-specific parameters (stored as dict for flexibility in MVP)
-    # For cylinder: {"dia_param": "dia", "length_param": "length"}
-    # For hole: {"dia_param": "hole_dia", "position": [...]}
-    # For chamfer: {"edge": "end", "size_param": "chamfer_size"}
-    params: dict[str, str | float] = Field(
+    # MVP: Only sketch and extrude supported
+    # For sketch: {"plane": "right_plane"} (sketch object embedded in sketch field)
+    # For extrude: {"sketch": "sketch_name", "distance": value, "operation": "join"|"cut"}
+    params: dict[str, str | float | dict] = Field(
         default_factory=dict,
-        description="Feature parameters (can reference param names or be direct values)"
+        description="Feature parameters (can reference param names or be direct values, or contain nested objects like Sketch)"
     )
+    
+    # For sketch features, embed the Sketch directly
+    sketch: Optional["Sketch"] = Field(None, description="Embedded sketch (for sketch features)")
     
     critical: bool = Field(
         default=False,
@@ -93,6 +97,63 @@ class ValidationIssue(BaseModel):
     related_chains: list[str] = Field(default_factory=list, description="Related chain names")
 
 
+# Sketch models for 2D sketch mode
+class SketchEntity(BaseModel):
+    """Represents a 2D sketch entity (line, arc, circle, rectangle)."""
+    
+    id: str = Field(..., description="Unique identifier for the entity")
+    # MVP: Only line, circle, and rectangle supported (no arc)
+    type: Literal["line", "circle", "rectangle"] = Field(..., description="Entity type")
+    
+    # Geometry fields (varies by type)
+    # For line: start and end points
+    start: Optional[tuple[float, float]] = Field(None, description="Start point (x, y) for line/arc")
+    end: Optional[tuple[float, float]] = Field(None, description="End point (x, y) for line/arc")
+    
+    # For circle: center and radius
+    center: Optional[tuple[float, float]] = Field(None, description="Center point (x, y) for circle/arc")
+    radius: Optional[float] = Field(None, description="Radius for circle/arc")
+    
+    # For rectangle: corner points
+    corner1: Optional[tuple[float, float]] = Field(None, description="First corner for rectangle")
+    corner2: Optional[tuple[float, float]] = Field(None, description="Second corner for rectangle")
+    
+    # MVP: Arc not supported - removed start_angle and end_angle
+
+
+class SketchConstraint(BaseModel):
+    """Represents a geometric constraint on sketch entities."""
+    
+    id: str = Field(..., description="Unique identifier for the constraint")
+    # MVP: Only horizontal, vertical, and coincident supported
+    type: Literal["horizontal", "vertical", "coincident"] = Field(
+        ..., description="Constraint type"
+    )
+    entity_ids: list[str] = Field(..., description="IDs of entities involved in the constraint")
+    params: dict[str, Any] = Field(default_factory=dict, description="Additional constraint parameters")
+
+
+class SketchDimension(BaseModel):
+    """Represents a dimension on sketch entities."""
+    
+    id: str = Field(..., description="Unique identifier for the dimension")
+    # MVP: Only length and diameter supported
+    type: Literal["length", "diameter"] = Field(..., description="Dimension type")
+    entity_ids: list[str] = Field(..., description="IDs of entities being dimensioned (1 or 2)")
+    value: float = Field(..., description="Dimension value")
+    unit: str = Field(default="mm", description="Unit for the dimension")
+
+
+class Sketch(BaseModel):
+    """Represents a 2D sketch on a plane."""
+    
+    name: str = Field(..., description="Sketch name")
+    plane: str = Field(..., description="Plane reference (e.g., 'front_plane', 'right_plane', or face reference)")
+    entities: list[SketchEntity] = Field(default_factory=list, description="Sketch entities")
+    constraints: list[SketchConstraint] = Field(default_factory=list, description="Geometric constraints")
+    dimensions: list[SketchDimension] = Field(default_factory=list, description="Dimensions")
+
+
 class Part(BaseModel):
     """Represents a complete parametric part."""
     
@@ -113,4 +174,5 @@ class Part(BaseModel):
         default_factory=list,
         description="List of geometric constraints"
     )
+    sketches: list[Sketch] = Field(default_factory=list, description="2D sketches (can also be embedded in sketch features)")
 

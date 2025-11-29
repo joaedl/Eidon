@@ -1,14 +1,15 @@
 """
-API routes for exporting parts to STL and STEP formats.
+API routes for exporting parts to STL, STEP, and SVG drawing formats.
 """
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 import io
 import cadquery as cq
 from app.core.ir import Part
 from app.core.builder import build_cad_model
+from app.core.drawing import generate_front_view_svg
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -98,4 +99,29 @@ async def export_step(request: ExportRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"STEP export failed: {str(e)}")
+
+
+@router.post("/drawing")
+async def export_drawing(request: ExportRequest) -> Response:
+    """
+    Export part to SVG technical drawing (front view).
+    
+    MVP: Generates a simple front view with auto-dimensions from sketch dimensions.
+    Returns SVG string.
+    """
+    try:
+        part_obj = Part.model_validate(request.part)
+        
+        # Generate SVG
+        svg_content = generate_front_view_svg(part_obj)
+        
+        return Response(
+            content=svg_content,
+            media_type="image/svg+xml",
+            headers={
+                "Content-Disposition": f'inline; filename="{part_obj.name}_drawing.svg"'
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Drawing generation failed: {str(e)}")
 
