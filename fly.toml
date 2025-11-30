@@ -4,7 +4,7 @@
 #
 
 app = 'eidos-geometry'
-primary_region = 'iad'
+primary_region = 'ams'
 
 [build]
   dockerfile = 'Dockerfile'
