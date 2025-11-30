@@ -91,6 +91,16 @@ pytest tests/test_build.py
 
 See `tests/README.md` for more details on the test suite.
 
+## Deployment
+
+The service can be deployed to Fly.io. See `DEPLOY.md` for deployment instructions.
+
+Quick deployment:
+```bash
+fly launch
+fly deploy
+```
+
 ## API Endpoints
 
 ### Service & Metadata
