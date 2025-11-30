@@ -9,12 +9,21 @@ dependencies = [
     "pydantic>=2.5.0",
     "cadquery>=2.4.0",
     "sympy>=1.12.0",
-    "lark>=1.1.0",
     "python-multipart>=0.0.6",
-    "pytest>=7.4.0",
-    "openai>=1.12.0",
-    "python-dotenv>=1.0.0",
+    "httpx>=0.24.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+eidos = "app.main:app"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [tool.setuptools]
 packages = {find = {include = ["app*"], exclude = ["tests*", "eidos*"]}}

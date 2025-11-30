@@ -53,15 +53,11 @@ Eidos/
 
 ## Installation
 
-### Installation
-
 ```bash
 pip install -e .
 ```
 
 ## Running
-
-### Running
 
 ```bash
 uvicorn app.main:app --reload --port 8000
@@ -70,6 +66,30 @@ uvicorn app.main:app --reload --port 8000
 The geometry service API will be available at `http://localhost:8000`
 
 API documentation (Swagger UI) is available at `http://localhost:8000/docs`
+
+## Testing
+
+Install test dependencies:
+```bash
+pip install -e ".[dev]"
+```
+
+Run all tests:
+```bash
+pytest
+```
+
+Run with verbose output:
+```bash
+pytest -v
+```
+
+Run specific test file:
+```bash
+pytest tests/test_build.py
+```
+
+See `tests/README.md` for more details on the test suite.
 
 ## API Endpoints
 
