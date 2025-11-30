@@ -1,0 +1,549 @@
+{
+  "$defs": {
+    "Chain": {
+      "description": "Represents a 1D dimensional chain (stackup) for tolerance analysis.",
+      "properties": {
+        "name": {
+          "description": "Chain name",
+          "title": "Name",
+          "type": "string"
+        },
+        "terms": {
+          "description": "List of parameter names that make up the chain",
+          "items": {
+            "type": "string"
+          },
+          "title": "Terms",
+          "type": "array"
+        },
+        "target_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target nominal value for the chain (optional)",
+          "title": "Target Value"
+        },
+        "target_tolerance": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target total tolerance (\u00b1value) for the chain (optional)",
+          "title": "Target Tolerance"
+        }
+      },
+      "required": [
+        "name",
+        "terms"
+      ],
+      "title": "Chain",
+      "type": "object"
+    },
+    "Constraint": {
+      "description": "Represents a geometric constraint between entities.",
+      "properties": {
+        "name": {
+          "description": "Constraint name",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of constraint",
+          "enum": [
+            "coincident",
+            "parallel",
+            "perpendicular",
+            "distance",
+            "angle",
+            "reference"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "entities": {
+          "description": "References to features/edges/faces by name",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "description": "Constraint parameters (distance, angle, etc.)",
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "title": "Constraint",
+      "type": "object"
+    },
+    "Feature": {
+      "description": "Represents a geometric feature in the part.",
+      "properties": {
+        "type": {
+          "description": "Type of feature (MVP: only sketch and extrude)",
+          "enum": [
+            "sketch",
+            "extrude"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "description": "Feature name",
+          "title": "Name",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ]
+          },
+          "description": "Feature parameters (can reference param names or be direct values, or contain nested objects like Sketch)",
+          "title": "Params",
+          "type": "object"
+        },
+        "sketch": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Sketch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Embedded sketch (for sketch features)"
+        },
+        "critical": {
+          "default": false,
+          "description": "Whether this feature is critical and should have constraints",
+          "title": "Critical",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "title": "Feature",
+      "type": "object"
+    },
+    "Param": {
+      "description": "Represents a parameter with value, unit, and optional tolerance class.",
+      "properties": {
+        "name": {
+          "description": "Parameter name",
+          "title": "Name",
+          "type": "string"
+        },
+        "value": {
+          "description": "Nominal value",
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "default": "mm",
+          "description": "Unit (e.g., 'mm', 'in')",
+          "title": "Unit",
+          "type": "string"
+        },
+        "tolerance_class": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tolerance class (e.g., 'g6', 'H7')",
+          "title": "Tolerance Class"
+        }
+      },
+      "required": [
+        "name",
+        "value"
+      ],
+      "title": "Param",
+      "type": "object"
+    },
+    "Sketch": {
+      "description": "Represents a 2D sketch on a plane.",
+      "properties": {
+        "name": {
+          "description": "Sketch name",
+          "title": "Name",
+          "type": "string"
+        },
+        "plane": {
+          "description": "Plane reference (e.g., 'front_plane', 'right_plane', or face reference)",
+          "title": "Plane",
+          "type": "string"
+        },
+        "entities": {
+          "description": "Sketch entities",
+          "items": {
+            "$ref": "#/$defs/SketchEntity"
+          },
+          "title": "Entities",
+          "type": "array"
+        },
+        "constraints": {
+          "description": "Geometric constraints",
+          "items": {
+            "$ref": "#/$defs/SketchConstraint"
+          },
+          "title": "Constraints",
+          "type": "array"
+        },
+        "dimensions": {
+          "description": "Dimensions",
+          "items": {
+            "$ref": "#/$defs/SketchDimension"
+          },
+          "title": "Dimensions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "plane"
+      ],
+      "title": "Sketch",
+      "type": "object"
+    },
+    "SketchConstraint": {
+      "description": "Represents a geometric constraint on sketch entities.",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for the constraint",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "Constraint type",
+          "enum": [
+            "horizontal",
+            "vertical",
+            "coincident"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "entity_ids": {
+          "description": "IDs of entities involved in the constraint",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Ids",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": true,
+          "description": "Additional constraint parameters",
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "entity_ids"
+      ],
+      "title": "SketchConstraint",
+      "type": "object"
+    },
+    "SketchDimension": {
+      "description": "Represents a dimension on sketch entities.",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for the dimension",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "Dimension type",
+          "enum": [
+            "length",
+            "diameter"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "entity_ids": {
+          "description": "IDs of entities being dimensioned (1 or 2)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Ids",
+          "type": "array"
+        },
+        "value": {
+          "description": "Dimension value",
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "default": "mm",
+          "description": "Unit for the dimension",
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "entity_ids",
+        "value"
+      ],
+      "title": "SketchDimension",
+      "type": "object"
+    },
+    "SketchEntity": {
+      "description": "Represents a 2D sketch entity (line, arc, circle, rectangle).",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for the entity",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "Entity type",
+          "enum": [
+            "line",
+            "circle",
+            "rectangle"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start point (x, y) for line/arc",
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End point (x, y) for line/arc",
+          "title": "End"
+        },
+        "center": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Center point (x, y) for circle/arc",
+          "title": "Center"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Radius for circle/arc",
+          "title": "Radius"
+        },
+        "corner1": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First corner for rectangle",
+          "title": "Corner1"
+        },
+        "corner2": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Second corner for rectangle",
+          "title": "Corner2"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "SketchEntity",
+      "type": "object"
+    }
+  },
+  "description": "Part Intermediate Representation for geometry service. Contains geometry-relevant fields: name, params, features (sketch/extrude), and sketches. Note: chains and constraints are semantic-only and handled by the TypeScript server.",
+  "properties": {
+    "name": {
+      "description": "Part name",
+      "title": "Name",
+      "type": "string"
+    },
+    "params": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Param"
+      },
+      "description": "Dictionary of parameters by name",
+      "title": "Params",
+      "type": "object"
+    },
+    "features": {
+      "description": "List of features in the part",
+      "items": {
+        "$ref": "#/$defs/Feature"
+      },
+      "title": "Features",
+      "type": "array"
+    },
+    "chains": {
+      "description": "List of dimensional chains for analysis",
+      "items": {
+        "$ref": "#/$defs/Chain"
+      },
+      "title": "Chains",
+      "type": "array"
+    },
+    "constraints": {
+      "description": "List of geometric constraints",
+      "items": {
+        "$ref": "#/$defs/Constraint"
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "sketches": {
+      "description": "2D sketches (can also be embedded in sketch features)",
+      "items": {
+        "$ref": "#/$defs/Sketch"
+      },
+      "title": "Sketches",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "PartIR",
+  "type": "object",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eidos.cad/schemas/v1/part_ir.schema.json"
+}

@@ -1,0 +1,290 @@
+{
+  "$defs": {
+    "SketchConstraint": {
+      "description": "Represents a geometric constraint on sketch entities.",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for the constraint",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "Constraint type",
+          "enum": [
+            "horizontal",
+            "vertical",
+            "coincident"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "entity_ids": {
+          "description": "IDs of entities involved in the constraint",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Ids",
+          "type": "array"
+        },
+        "params": {
+          "additionalProperties": true,
+          "description": "Additional constraint parameters",
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "entity_ids"
+      ],
+      "title": "SketchConstraint",
+      "type": "object"
+    },
+    "SketchDimension": {
+      "description": "Represents a dimension on sketch entities.",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for the dimension",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "Dimension type",
+          "enum": [
+            "length",
+            "diameter"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "entity_ids": {
+          "description": "IDs of entities being dimensioned (1 or 2)",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Ids",
+          "type": "array"
+        },
+        "value": {
+          "description": "Dimension value",
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "default": "mm",
+          "description": "Unit for the dimension",
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "entity_ids",
+        "value"
+      ],
+      "title": "SketchDimension",
+      "type": "object"
+    },
+    "SketchEntity": {
+      "description": "Represents a 2D sketch entity (line, arc, circle, rectangle).",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for the entity",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "Entity type",
+          "enum": [
+            "line",
+            "circle",
+            "rectangle"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "start": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Start point (x, y) for line/arc",
+          "title": "Start"
+        },
+        "end": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "End point (x, y) for line/arc",
+          "title": "End"
+        },
+        "center": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Center point (x, y) for circle/arc",
+          "title": "Center"
+        },
+        "radius": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Radius for circle/arc",
+          "title": "Radius"
+        },
+        "corner1": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "First corner for rectangle",
+          "title": "Corner1"
+        },
+        "corner2": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Second corner for rectangle",
+          "title": "Corner2"
+        }
+      },
+      "required": [
+        "id",
+        "type"
+      ],
+      "title": "SketchEntity",
+      "type": "object"
+    }
+  },
+  "description": "Sketch Intermediate Representation for 2D geometry. Contains entities (line, circle, rectangle), constraints (horizontal, vertical, coincident), and dimensions (length, diameter).",
+  "properties": {
+    "name": {
+      "description": "Sketch name",
+      "title": "Name",
+      "type": "string"
+    },
+    "plane": {
+      "description": "Plane reference (e.g., 'front_plane', 'right_plane', or face reference)",
+      "title": "Plane",
+      "type": "string"
+    },
+    "entities": {
+      "description": "Sketch entities",
+      "items": {
+        "$ref": "#/$defs/SketchEntity"
+      },
+      "title": "Entities",
+      "type": "array"
+    },
+    "constraints": {
+      "description": "Geometric constraints",
+      "items": {
+        "$ref": "#/$defs/SketchConstraint"
+      },
+      "title": "Constraints",
+      "type": "array"
+    },
+    "dimensions": {
+      "description": "Dimensions",
+      "items": {
+        "$ref": "#/$defs/SketchDimension"
+      },
+      "title": "Dimensions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "plane"
+  ],
+  "title": "SketchIR",
+  "type": "object",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eidos.cad/schemas/v1/sketch_ir.schema.json"
+}

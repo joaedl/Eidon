@@ -1,0 +1,51 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://eidos.cad/schemas/v1/mesh.schema.json",
+  "title": "MeshData",
+  "description": "3D mesh data for rendering (vertices and faces)",
+  "type": "object",
+  "properties": {
+    "vertices": {
+      "type": "array",
+      "description": "List of vertex coordinates [x, y, z]",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "number"
+        },
+        "minItems": 3,
+        "maxItems": 3
+      }
+    },
+    "faces": {
+      "type": "array",
+      "description": "List of triangular faces as vertex indices [i, j, k]",
+      "items": {
+        "type": "array",
+        "items": {
+          "type": "integer"
+        },
+        "minItems": 3,
+        "maxItems": 3
+      }
+    },
+    "featureId": {
+      "type": "string",
+      "description": "Optional feature ID for selection mapping"
+    },
+    "faceToFeature": {
+      "type": "array",
+      "description": "Optional mapping from face index to feature ID",
+      "items": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    }
+  },
+  "required": [
+    "vertices",
+    "faces"
+  ]
+}
