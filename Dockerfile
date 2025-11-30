@@ -28,5 +28,5 @@ EXPOSE 8000
 
 # Run the application
 # Use PORT environment variable if set (Fly.io provides this)
-CMD uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
 
