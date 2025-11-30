@@ -20,52 +20,50 @@ The service operates purely on IR (no DSL parsing), making it suitable for integ
 
 ```
 Eidos/
-├── backend/              # Python FastAPI geometry service
-│   ├── app/
-│   │   ├── api/         # API route handlers
-│   │   │   ├── routes_service.py    # Health, version
-│   │   │   ├── routes_build.py      # Build endpoints
-│   │   │   ├── routes_mesh.py        # Meshing endpoints
-│   │   │   ├── routes_export.py      # Export endpoints
-│   │   │   ├── routes_import.py      # Import endpoints
-│   │   │   ├── routes_analysis.py    # Analysis endpoints
-│   │   │   ├── routes_sketch.py      # Sketch endpoints
-│   │   │   ├── routes_drawing.py     # Drawing endpoints
-│   │   │   ├── routes_assembly.py    # Assembly endpoints
-│   │   │   ├── routes_selection.py   # Selection/topology endpoints
-│   │   │   ├── routes_fea.py          # FEA endpoints
-│   │   │   └── schemas.py            # Request/response models
-│   │   ├── core/        # Core modules
-│   │   │   ├── ir.py                 # IR models (Part, Sketch, etc.)
-│   │   │   ├── builder.py            # Geometry building
-│   │   │   ├── geometry_utils.py     # Geometry utilities
-│   │   │   ├── analysis.py          # Analysis functions
-│   │   │   └── drawing.py           # Drawing generation
-│   │   ├── schemas/     # JSON Schema definitions
-│   │   │   ├── v1/                  # Version 1 schemas
-│   │   │   │   ├── part_ir.schema.json
-│   │   │   │   ├── sketch_ir.schema.json
-│   │   │   │   └── mesh.schema.json
-│   │   │   └── generator.py         # Schema generator
-│   │   └── main.py      # FastAPI entrypoint
-│   └── pyproject.toml   # Python dependencies
+├── app/                  # Python FastAPI geometry service
+│   ├── api/              # API route handlers
+│   │   ├── routes_service.py    # Health, version
+│   │   ├── routes_build.py      # Build endpoints
+│   │   ├── routes_mesh.py        # Meshing endpoints
+│   │   ├── routes_export.py      # Export endpoints
+│   │   ├── routes_import.py      # Import endpoints
+│   │   ├── routes_analysis.py    # Analysis endpoints
+│   │   ├── routes_sketch.py      # Sketch endpoints
+│   │   ├── routes_drawing.py     # Drawing endpoints
+│   │   ├── routes_assembly.py    # Assembly endpoints
+│   │   ├── routes_selection.py   # Selection/topology endpoints
+│   │   ├── routes_fea.py          # FEA endpoints
+│   │   └── schemas.py            # Request/response models
+│   ├── core/             # Core modules
+│   │   ├── ir.py                 # IR models (Part, Sketch, etc.)
+│   │   ├── builder.py            # Geometry building
+│   │   ├── geometry_utils.py     # Geometry utilities
+│   │   ├── analysis.py          # Analysis functions
+│   │   └── drawing.py           # Drawing generation
+│   ├── schemas/          # JSON Schema definitions
+│   │   ├── v1/                  # Version 1 schemas
+│   │   │   ├── part_ir.schema.json
+│   │   │   ├── sketch_ir.schema.json
+│   │   │   └── mesh.schema.json
+│   │   └── generator.py         # Schema generator
+│   └── main.py           # FastAPI entrypoint
+├── pyproject.toml        # Python dependencies
+└── README.md             # This file
 ```
 
 ## Installation
 
-### Backend
+### Installation
 
 ```bash
-cd backend
 pip install -e .
 ```
 
 ## Running
 
-### Backend
+### Running
 
 ```bash
-cd backend
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -207,7 +205,7 @@ API documentation (Swagger UI) is available at `http://localhost:8000/docs`
 
 ## IR (Intermediate Representation)
 
-The service operates on Part IR and Sketch IR, defined as JSON schemas in `backend/app/schemas/v1/`.
+The service operates on Part IR and Sketch IR, defined as JSON schemas in `app/schemas/v1/`.
 
 ### PartIR Schema
 
@@ -273,11 +271,11 @@ The service operates on Part IR and Sketch IR, defined as JSON schemas in `backe
 }
 ```
 
-JSON schemas are available in `backend/app/schemas/v1/` for validation in TypeScript and other languages.
+JSON schemas are available in `app/schemas/v1/` for validation in TypeScript and other languages.
 
 ## Technical Stack
 
-### Backend
+### Technology Stack
 - Python 3.11+
 - FastAPI - Web framework
 - CadQuery - CAD kernel (OpenCascade wrapper)
@@ -294,7 +292,7 @@ The codebase is structured for extensibility:
 
 ## Schema Versioning
 
-Schemas are versioned in `backend/app/schemas/v1/`. When making breaking changes:
+Schemas are versioned in `app/schemas/v1/`. When making breaking changes:
 1. Create a new version directory (e.g., `v2/`)
 2. Update `$id` fields in schemas
 3. Maintain backward compatibility documentation

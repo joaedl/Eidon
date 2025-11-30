@@ -1,7 +1,7 @@
 [project]
-name = "eidos-backend"
+name = "eidos"
 version = "0.1.0"
-description = "Parametric CAD system backend"
+description = "Eidos Geometry Service - Parametric CAD geometry operations"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.104.0",
