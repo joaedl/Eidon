@@ -7,8 +7,8 @@ WORKDIR /app
 # Install system dependencies for CadQuery/OpenCascade
 RUN apt-get update && apt-get install -y \
     build-essential \
-    libgl1-mesa-glx \
-    libglu1-mesa \
+    libgl1 \
+    libglu1 \
     libxrender1 \
     libxext6 \
     libxi6 \
