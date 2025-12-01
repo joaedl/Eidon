@@ -11,9 +11,14 @@ from app.main import app
 @pytest_asyncio.fixture
 async def client():
     """Create a test client for the FastAPI app."""
+    import os
+    # Set test API key for authentication
+    os.environ["API_KEY"] = "test-api-key"
     # Use httpx AsyncClient with ASGITransport
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test", timeout=30.0) as ac:
+        # Set default headers with API key for all requests
+        ac.headers.update({"X-API-Key": "test-api-key"})
         yield ac
 
 

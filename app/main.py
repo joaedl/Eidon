@@ -13,12 +13,16 @@ from app.api import (
     routes_mesh, routes_import, routes_sketch, routes_drawing,
     routes_assembly, routes_selection, routes_fea
 )
+from app.core.auth import AuthMiddleware
 
 app = FastAPI(
     title="Eidos Geometry Service",
     description="Geometry service API for CAD operations",
     version="0.1.0"
 )
+
+# Add authentication middleware (before CORS)
+app.add_middleware(AuthMiddleware)
 
 # Configure CORS
 app.add_middleware(

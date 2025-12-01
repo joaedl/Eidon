@@ -42,6 +42,34 @@ If you need to set environment variables:
 fly secrets set KEY=value
 ```
 
+### API Authentication
+
+The service uses API key authentication. Set your API key:
+```bash
+fly secrets set API_KEY=your-secret-key-here
+```
+
+**Important:** Change the default key! The default key is only for development.
+
+To use the API, include the API key in your requests:
+```bash
+# Using Authorization header (Bearer token)
+curl -H "Authorization: Bearer your-secret-key-here" https://eidos-geometry.fly.dev/build/solid
+
+# Or using X-API-Key header
+curl -H "X-API-Key: your-secret-key-here" https://eidos-geometry.fly.dev/build/solid
+```
+
+**Optional:** Restrict access to specific domains:
+```bash
+fly secrets set ALLOWED_DOMAINS=example.com,app.example.com
+```
+
+**Public endpoints** (no authentication required):
+- `/health` - Health check
+- `/docs` - API documentation
+- `/` - Root endpoint
+
 ### Scaling
 
 Scale the application:

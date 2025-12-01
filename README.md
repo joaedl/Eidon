@@ -67,6 +67,36 @@ The geometry service API will be available at `http://localhost:8000`
 
 API documentation (Swagger UI) is available at `http://localhost:8000/docs`
 
+## Authentication
+
+The API is protected by API key authentication. By default, the development key is `eidos-dev-key-change-me`.
+
+**For production deployments**, set a secure API key:
+```bash
+fly secrets set API_KEY=your-secret-key-here
+```
+
+**Using the API:**
+
+Include the API key in your requests:
+```bash
+# Using Authorization header (Bearer token)
+curl -H "Authorization: Bearer your-api-key" https://eidos-geometry.fly.dev/build/solid
+
+# Or using X-API-Key header
+curl -H "X-API-Key: your-api-key" https://eidos-geometry.fly.dev/build/solid
+```
+
+**Public endpoints** (no authentication required):
+- `/health` - Health check
+- `/docs` - API documentation  
+- `/` - Root endpoint
+
+**Optional:** Restrict access to specific domains:
+```bash
+fly secrets set ALLOWED_DOMAINS=example.com,app.example.com
+```
+
 ## Testing
 
 Install test dependencies:
