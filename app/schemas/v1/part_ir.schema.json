@@ -131,10 +131,14 @@
               {
                 "additionalProperties": true,
                 "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
               }
             ]
           },
-          "description": "Feature parameters (can reference param names or be direct values, or contain nested objects like Sketch)",
+          "description": "Feature parameters. For extrude: 'sketch' (sketch name), 'distance' (number | 'through_all' | 'to_next'), 'operation' ('join' | 'cut'), 'direction' (optional: 'normal' | 'reverse' | [x,y,z]). For sketch: 'plane' (plane reference). Can reference param names or be direct values.",
           "title": "Params",
           "type": "object"
         },
@@ -204,6 +208,59 @@
       "title": "Param",
       "type": "object"
     },
+    "Profile": {
+      "description": "Represents a closed profile region in a sketch (outer boundary or hole).",
+      "properties": {
+        "id": {
+          "description": "Unique identifier for the profile",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "description": "Profile type: outer boundary or inner hole",
+          "enum": [
+            "outer",
+            "hole"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "entity_ids": {
+          "description": "IDs of entities that form this closed profile",
+          "items": {
+            "type": "string"
+          },
+          "title": "Entity Ids",
+          "type": "array"
+        },
+        "area": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Calculated area of the profile (for sorting)",
+          "title": "Area"
+        },
+        "is_outer": {
+          "description": "True if this is the outer boundary, False if it's a hole",
+          "title": "Is Outer",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "entity_ids",
+        "is_outer"
+      ],
+      "title": "Profile",
+      "type": "object"
+    },
     "Sketch": {
       "description": "Represents a 2D sketch on a plane.",
       "properties": {
@@ -213,7 +270,7 @@
           "type": "string"
         },
         "plane": {
-          "description": "Plane reference (e.g., 'front_plane', 'right_plane', or face reference)",
+          "description": "Plane reference. Can be: 'front_plane', 'right_plane', 'top_plane' (standard planes), or 'face:feature_name' (default face of a feature), or 'face:feature_name:index:N' (face by index, 0-based), or 'face:feature_name:normal:+X' (face with normal in +X direction), or 'face:feature_name:normal:[1,0,0]' (face with specific normal vector), or 'face:feature_name:center:[x,y,z]' (face containing point), or 'face:feature_name:largest' (largest face by area), or 'face:feature_name:smallest' (smallest face by area), or 'face:feature_name:top' (top face by Z), or 'face:feature_name:bottom' (bottom face by Z), or 'face:feature_name:front' (front face by Y), or 'face:feature_name:back' (back face by Y), or 'face:feature_name:right' (right face by X), or 'face:feature_name:left' (left face by X)",
           "title": "Plane",
           "type": "string"
         },
@@ -239,6 +296,14 @@
             "$ref": "#/$defs/SketchDimension"
           },
           "title": "Dimensions",
+          "type": "array"
+        },
+        "profiles": {
+          "description": "Detected closed profiles (outer boundary and holes). Auto-detected if not provided.",
+          "items": {
+            "$ref": "#/$defs/Profile"
+          },
+          "title": "Profiles",
           "type": "array"
         }
       },

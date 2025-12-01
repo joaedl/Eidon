@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from pydantic import BaseModel
 
-from app.core.ir import Part, Sketch, Param, Feature, SketchEntity, SketchConstraint, SketchDimension
+from app.core.ir import Part, Sketch, Param, Feature, SketchEntity, SketchConstraint, SketchDimension, Profile
 
 
 def generate_schema_from_model(model: type[BaseModel], schema_id: str, title: str, description: str) -> dict[str, Any]:

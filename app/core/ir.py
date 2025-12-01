@@ -34,11 +34,16 @@ class Feature(BaseModel):
     
     # Feature-specific parameters (stored as dict for flexibility in MVP)
     # MVP: Only sketch and extrude supported
-    # For sketch: {"plane": "right_plane"} (sketch object embedded in sketch field)
-    # For extrude: {"sketch": "sketch_name", "distance": value, "operation": "join"|"cut"}
-    params: dict[str, str | float | dict] = Field(
+    # For sketch: {"plane": "right_plane"} or {"plane": "face:feature_name"} (sketch object embedded in sketch field)
+    # For extrude: {
+    #   "sketch": "sketch_name", 
+    #   "distance": value | "through_all" | "to_next", 
+    #   "operation": "join"|"cut",
+    #   "direction": [x, y, z] | "normal" | "reverse" (optional, defaults to sketch plane normal)
+    # }
+    params: dict[str, str | float | dict | list] = Field(
         default_factory=dict,
-        description="Feature parameters (can reference param names or be direct values, or contain nested objects like Sketch)"
+        description="Feature parameters. For extrude: 'sketch' (sketch name), 'distance' (number | 'through_all' | 'to_next'), 'operation' ('join' | 'cut'), 'direction' (optional: 'normal' | 'reverse' | [x,y,z]). For sketch: 'plane' (plane reference). Can reference param names or be direct values."
     )
     
     # For sketch features, embed the Sketch directly
@@ -144,14 +149,45 @@ class SketchDimension(BaseModel):
     unit: str = Field(default="mm", description="Unit for the dimension")
 
 
+class Profile(BaseModel):
+    """Represents a closed profile region in a sketch (outer boundary or hole)."""
+    
+    id: str = Field(..., description="Unique identifier for the profile")
+    type: Literal["outer", "hole"] = Field(..., description="Profile type: outer boundary or inner hole")
+    entity_ids: list[str] = Field(..., description="IDs of entities that form this closed profile")
+    area: Optional[float] = Field(None, description="Calculated area of the profile (for sorting)")
+    is_outer: bool = Field(..., description="True if this is the outer boundary, False if it's a hole")
+
+
 class Sketch(BaseModel):
     """Represents a 2D sketch on a plane."""
     
     name: str = Field(..., description="Sketch name")
-    plane: str = Field(..., description="Plane reference (e.g., 'front_plane', 'right_plane', or face reference)")
+    plane: str = Field(
+        ..., 
+        description="Plane reference. Can be: "
+        "'front_plane', 'right_plane', 'top_plane' (standard planes), "
+        "or 'face:feature_name' (default face of a feature), "
+        "or 'face:feature_name:index:N' (face by index, 0-based), "
+        "or 'face:feature_name:normal:+X' (face with normal in +X direction), "
+        "or 'face:feature_name:normal:[1,0,0]' (face with specific normal vector), "
+        "or 'face:feature_name:center:[x,y,z]' (face containing point), "
+        "or 'face:feature_name:largest' (largest face by area), "
+        "or 'face:feature_name:smallest' (smallest face by area), "
+        "or 'face:feature_name:top' (top face by Z), "
+        "or 'face:feature_name:bottom' (bottom face by Z), "
+        "or 'face:feature_name:front' (front face by Y), "
+        "or 'face:feature_name:back' (back face by Y), "
+        "or 'face:feature_name:right' (right face by X), "
+        "or 'face:feature_name:left' (left face by X)"
+    )
     entities: list[SketchEntity] = Field(default_factory=list, description="Sketch entities")
     constraints: list[SketchConstraint] = Field(default_factory=list, description="Geometric constraints")
     dimensions: list[SketchDimension] = Field(default_factory=list, description="Dimensions")
+    profiles: list[Profile] = Field(
+        default_factory=list,
+        description="Detected closed profiles (outer boundary and holes). Auto-detected if not provided."
+    )
 
 
 class Part(BaseModel):
