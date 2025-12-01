@@ -219,9 +219,17 @@ def build_cad_model(part: Part) -> cq.Workplane:
                 extrude_wp = cq.Workplane("XY").rect(width, height).extrude(distance)
                 
                 if operation == "cut":
-                    wp = wp.cut(extrude_wp)
+                    # For cut, we need existing geometry
+                    if wp.objects:
+                        wp = wp.cut(extrude_wp)
+                    else:
+                        raise ValueError(f"Cannot cut from empty geometry in feature '{feature.name}'")
                 else:  # join
-                    wp = wp.union(extrude_wp)
+                    # For join, if wp is empty, just use the extrude_wp directly
+                    if wp.objects:
+                        wp = wp.union(extrude_wp)
+                    else:
+                        wp = extrude_wp
             else:
                 raise ValueError(f"Sketch '{sketch_ref}' has no valid geometry for extrusion")
     
